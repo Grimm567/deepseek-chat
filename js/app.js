@@ -14,6 +14,7 @@ const DEFAULTS = {
   theme: 'auto',
   think: false,
   search: false,
+  temperature: 1,
 };
 
 function loadSettings() {
@@ -913,6 +914,7 @@ async function runCompletion(session, assistantMsg) {
       systemPrompt: composeSystemPrompt(),
       thinking: state.settings.think,
       search: state.settings.search,
+      temperature: state.settings.temperature,
       wantTitle: !session.title || session.title.length === 0,
       signal: state.controller.signal,
 
@@ -1097,6 +1099,7 @@ async function continueReply(session, index) {
       systemPrompt: composeSystemPrompt(),
       thinking: !!msg.thinking,
       search: false,
+      temperature: state.settings.temperature,
       wantTitle: false,
       signal: state.controller.signal,
       onBlockStart: (i, block) => {
@@ -1253,6 +1256,13 @@ function openSettings() {
     setValue('setModel', state.settings.model || DEFAULT_MODEL);
     setValue('setSystem', state.settings.systemPrompt || '');
     setValue('setTheme', state.settings.theme || 'auto');
+    const temp = Number(state.settings.temperature);
+    const tempInput = document.getElementById('setTemp');
+    if (tempInput) {
+      tempInput.value = String(Number.isFinite(temp) ? temp : 1);
+      const label = document.getElementById('tempValue');
+      if (label) label.textContent = Number(tempInput.value).toFixed(1);
+    }
   } catch (err) {
     console.error('填充设置失败', err);
   }
@@ -1282,6 +1292,7 @@ async function saveSettingsFromForm() {
     model,
     systemPrompt: $('setSystem').value,
     theme: $('setTheme').value,
+    temperature: Number($('setTemp').value),
   });
   saveSettings();
   applyTheme();
@@ -1417,6 +1428,9 @@ function bindEvents() {
 
   dom.btnSettings.addEventListener('click', openSettings);
   $('btnSettingsTop').addEventListener('click', openSettings);
+  $('setTemp').addEventListener('input', (e) => {
+    $('tempValue').textContent = Number(e.target.value).toFixed(1);
+  });
   $('btnCloseSettings').addEventListener('click', closeSettings);
   $('btnSaveSettings').addEventListener('click', saveSettingsFromForm);
   $('btnExport').addEventListener('click', doExport);
@@ -1472,6 +1486,9 @@ function bindViewport() {
   const apply = () => {
     // 键盘弹出时让整个应用跟随可视区域收缩，输入框不会被挡
     document.documentElement.style.setProperty('--vvh', vv.height + 'px');
+    // 键盘占用了底部，安全区留白和免责声明都该让位，否则输入框和键盘之间会有空隙
+    const keyboardOpen = vv.height < window.innerHeight - 120;
+    document.documentElement.classList.toggle('kb-open', keyboardOpen);
     if (document.activeElement === dom.input) scrollToBottom(true);
   };
   vv.addEventListener('resize', apply);

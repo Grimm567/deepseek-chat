@@ -680,6 +680,20 @@ body { overflow: hidden; }
   color: var(--text-3);
 }
 
+/* 键盘弹起：去掉安全区留白和说明文字，让输入框直接贴住键盘 */
+html.kb-open .composer-wrap {
+  padding-bottom: 6px;
+  padding-top: 4px;
+}
+
+html.kb-open .disclaimer {
+  display: none;
+}
+
+html.kb-open .chat {
+  padding-bottom: 4px;
+}
+
 /* ------------------------------ 弹层 ------------------------------ */
 
 .sheet {

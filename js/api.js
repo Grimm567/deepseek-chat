@@ -76,7 +76,7 @@ function buildMessages(history) {
 export async function streamMessage(opts) {
   const {
     apiKey, baseUrl, model, history, systemPrompt, thinking, search, wantTitle,
-    signal, onBlockStart, onBlockDelta, onBlockStop, onTitle, onUsage, onStop,
+    temperature, signal, onBlockStart, onBlockDelta, onBlockStop, onTitle, onUsage, onStop,
   } = opts;
 
   if (!apiKey) throw new ApiError('还没有填写 API Key', 0, 'auth');
@@ -88,6 +88,7 @@ export async function streamMessage(opts) {
     stream: true,
     thinking: { type: thinking ? 'enabled' : 'disabled' },
   };
+  if (Number.isFinite(Number(temperature))) payload.temperature = Number(temperature);
   if (systemPrompt) payload.system = systemPrompt;
   if (wantTitle) payload.title = { enabled: true };
   if (search) {
