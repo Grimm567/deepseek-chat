@@ -47,10 +47,16 @@ html, body {
 body { overflow: hidden; }
 
 .app {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
   display: flex;
   height: 100vh;
   height: 100dvh;
   height: var(--vvh, 100dvh);
+  /* 键盘弹起时 visualViewport 可能整体上移，靠 offsetTop 把内容顶回正确位置 */
+  transform: translateY(var(--vvy, 0px));
   overflow: hidden;
 }
 

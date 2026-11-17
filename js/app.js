@@ -1484,9 +1484,9 @@ function bindViewport() {
   const vv = window.visualViewport;
   if (!vv) return;
   const apply = () => {
-    // 键盘弹出时让整个应用跟随可视区域收缩，输入框不会被挡
+    // 键盘弹起时让整个应用跟随可视区域收缩，并用 offsetTop 抵消页面整体上移
     document.documentElement.style.setProperty('--vvh', vv.height + 'px');
-    // 键盘占用了底部，安全区留白和免责声明都该让位，否则输入框和键盘之间会有空隙
+    document.documentElement.style.setProperty('--vvy', vv.offsetTop + 'px');
     const keyboardOpen = vv.height < window.innerHeight - 120;
     document.documentElement.classList.toggle('kb-open', keyboardOpen);
     if (document.activeElement === dom.input) scrollToBottom(true);
@@ -1494,6 +1494,10 @@ function bindViewport() {
   vv.addEventListener('resize', apply);
   vv.addEventListener('scroll', apply);
   apply();
+
+  // 兜底：部分 iOS 版本只有 focus 之后才更新 visualViewport
+  dom.input.addEventListener('focus', () => setTimeout(apply, 120));
+  dom.input.addEventListener('blur', () => setTimeout(apply, 120));
 }
 
 async function init() {
