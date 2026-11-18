@@ -755,6 +755,8 @@ html.kb-open .chat {
   justify-content: center;
   opacity: 0;
   transition: opacity .18s;
+  /* 键盘弹起时由 JS 写入 --kb，弹层底部让出键盘高度，页面本身不上移 */
+  padding-bottom: var(--kb, 0px);
 }
 
 .modal.open { opacity: 1; }
@@ -763,6 +765,7 @@ html.kb-open .chat {
   width: 100%;
   max-width: 520px;
   max-height: 92vh;
+  max-height: min(92vh, calc(100dvh - var(--kb, 0px) - 8px));
   background: var(--panel);
   border-radius: 20px 20px 0 0;
   display: flex;
@@ -799,6 +802,9 @@ html.kb-open .chat {
   padding: 16px 18px;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  /* 键盘让出空间后卡片变矮，正文负责滚动，保证输入框能滚进可视区 */
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .modal-foot {

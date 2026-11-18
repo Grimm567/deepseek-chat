@@ -1279,15 +1279,20 @@ function openSettings() {
   modal.hidden = false;
   modal.style.display = 'flex';
   modal.style.opacity = '1';
+  modal.classList.add('open');
+  applyViewport();
 }
 
 function closeSettings() {
   const modal = document.getElementById('settingsModal');
   if (!modal) return;
   modal.style.opacity = '0';
+  modal.classList.remove('open');
   setTimeout(() => {
     modal.hidden = true;
     modal.style.display = 'none';
+    // 设置面板关掉后把键盘避让恢复成聊天页的逻辑
+    applyViewport();
   }, 160);
 }
 
@@ -1490,17 +1495,43 @@ function closeSidebar() {
 
 /* ------------------------------ 启动 ------------------------------ */
 
+/** 键盘高度（像素）。个别实现里 window.innerHeight 会跟着缩，兜底不小于 0。 */
+function keyboardHeight() {
+  const vv = window.visualViewport;
+  if (!vv) return 0;
+  return Math.max(0, Math.round(window.innerHeight - vv.height));
+}
+
+// 由 bindViewport 赋值；设置面板关闭等时机需要主动重新套用一次布局
+let applyViewport = () => {};
+
 function bindViewport() {
   const vv = window.visualViewport;
   if (!vv) return;
   const apply = () => {
+    const root = document.documentElement;
+    const kb = keyboardHeight();
+    const keyboardOpen = kb > 120;
+    const settingsOpen = !!dom.modal && !dom.modal.hidden;
+
+    // 设置面板打开时不让整页上移避让键盘：.app 保持原位，只把键盘高度交给弹层（--kb），
+    // 由弹层自己收缩让输入框留在键盘上方。否则 .app 收缩并底部对齐会把 API Key 等输入框顶出可视区。
+    root.style.setProperty('--kb', settingsOpen && keyboardOpen ? kb + 'px' : '0px');
+
+    if (settingsOpen && keyboardOpen) {
+      root.style.setProperty('--vvh', window.innerHeight + 'px');
+      root.style.setProperty('--vvy', '0px');
+      root.classList.remove('kb-open');
+      return;
+    }
+
     // 键盘弹起时让整个应用跟随可视区域收缩，并用 offsetTop 抵消页面整体上移
-    document.documentElement.style.setProperty('--vvh', vv.height + 'px');
-    document.documentElement.style.setProperty('--vvy', vv.offsetTop + 'px');
-    const keyboardOpen = vv.height < window.innerHeight - 120;
-    document.documentElement.classList.toggle('kb-open', keyboardOpen);
+    root.style.setProperty('--vvh', vv.height + 'px');
+    root.style.setProperty('--vvy', vv.offsetTop + 'px');
+    root.classList.toggle('kb-open', keyboardOpen);
     if (document.activeElement === dom.input) scrollToBottom(true);
   };
+  applyViewport = apply;
   vv.addEventListener('resize', apply);
   vv.addEventListener('scroll', apply);
   apply();
@@ -1508,6 +1539,14 @@ function bindViewport() {
   // 兜底：部分 iOS 版本只有 focus 之后才更新 visualViewport
   dom.input.addEventListener('focus', () => setTimeout(apply, 120));
   dom.input.addEventListener('blur', () => setTimeout(apply, 120));
+
+  // 设置面板里的输入框同样要兜底，否则键盘收起后 --kb 不会被复位
+  for (const id of ['setKey', 'setBase', 'setModel', 'setSystem']) {
+    const node = document.getElementById(id);
+    if (!node) continue;
+    node.addEventListener('focus', () => setTimeout(apply, 120));
+    node.addEventListener('blur', () => setTimeout(apply, 120));
+  }
 }
 
 async function init() {
