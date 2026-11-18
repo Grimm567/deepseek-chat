@@ -463,6 +463,7 @@ function renderTimeline(container, items) {
 function messageNode(msg, index, session, variantInfo) {
   const wrap = el('div', 'msg ' + (msg.role === 'user' ? 'user' : 'assistant'));
   wrap.dataset.index = String(index);
+  wrap.dataset.id = String(msg.id);
 
   if (msg.role === 'user') {
     const bubble = el('div', 'bubble');
@@ -576,6 +577,19 @@ function messageNode(msg, index, session, variantInfo) {
     openMessageMenu(msg, index, session);
   });
   return wrap;
+}
+
+/**
+ * 按消息 id 找当前已渲染的节点。
+ * DOM 里只有当前分支路径的消息，而 session.messages 还包含别的分支，
+ * 所以不能用「消息在数组里的下标」去索引 dom.messages.children，否则有分支后必然错位。
+ */
+function renderedNode(msg) {
+  const id = String(msg.id);
+  for (const node of dom.messages.children) {
+    if (node.dataset && node.dataset.id === id) return node;
+  }
+  return null;
 }
 
 function renderMessages() {
@@ -885,14 +899,12 @@ async function runCompletion(session, assistantMsg) {
   const paint = () => {
     const idx = session.messages.indexOf(assistantMsg);
     if (idx < 0) return;
-    // 每次都按索引重新取当前节点，不缓存引用：避免节点被重建后引用失效而追加出重复消息
-    const existing = dom.messages.children[idx];
+    // 按 id 找节点，不缓存引用：避免节点被重建后引用失效；
+    // 也不能用消息数组下标去索引 children —— DOM 只渲染当前分支，有分支后会错位成每帧一个新气泡
+    const existing = renderedNode(assistantMsg);
     const node = messageNode(assistantMsg, idx, session);
-    if (existing && existing.parentNode === dom.messages) {
-      dom.messages.replaceChild(node, existing);
-    } else {
-      dom.messages.appendChild(node);
-    }
+    if (existing) dom.messages.replaceChild(node, existing);
+    else dom.messages.appendChild(node);
     scrollToBottom();
   };
 
@@ -1067,13 +1079,11 @@ async function continueReply(session, index) {
   const paint = () => {
     const idx = session.messages.indexOf(msg);
     if (idx < 0) return;
-    const existing = dom.messages.children[idx];
+    // 同上：按 id 定位，避免存在分支时用数组下标取到错误节点而追加重复气泡
+    const existing = renderedNode(msg);
     const node = messageNode(msg, idx, session);
-    if (existing && existing.parentNode === dom.messages) {
-      dom.messages.replaceChild(node, existing);
-    } else {
-      dom.messages.appendChild(node);
-    }
+    if (existing) dom.messages.replaceChild(node, existing);
+    else dom.messages.appendChild(node);
     scrollToBottom();
   };
   const schedule = () => {
