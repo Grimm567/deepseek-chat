@@ -1500,6 +1500,17 @@ function bindEvents() {
   dom.btnScrollBottom.addEventListener('click', () => scrollToBottom(true));
   dom.chat.addEventListener('scroll', updateScrollButton, { passive: true });
 
+  // 点击输入框（含发送按钮那一排）以外的区域时自动收起键盘
+  const inComposer = (node) => {
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    return !!(el && el.closest && el.closest('.composer-wrap'));
+  };
+  document.addEventListener('pointerdown', (e) => {
+    if (document.activeElement !== dom.input) return;
+    if (inComposer(e.target)) return;
+    dom.input.blur();
+  }, { passive: true });
+
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
 }
 
