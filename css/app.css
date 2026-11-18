@@ -549,7 +549,7 @@ body { overflow: hidden; }
 
 .composer-wrap {
   flex-shrink: 0;
-  padding: 8px 14px calc(4px + var(--safe-bottom));
+  padding: 8px 14px calc(var(--composer-gap, 4px) + var(--safe-bottom));
   background: var(--bg);
   position: relative;
   z-index: 2;
@@ -681,7 +681,7 @@ body { overflow: hidden; }
 
 /* 键盘弹起：去掉安全区留白，让输入框直接贴住键盘 */
 html.kb-open .composer-wrap {
-  padding-bottom: 0;
+  padding-bottom: var(--composer-gap, 0px);
   padding-top: 4px;
 }
 

@@ -15,6 +15,7 @@ const DEFAULTS = {
   think: false,
   search: false,
   temperature: 1,
+  composerGap: 0,
 };
 
 function loadSettings() {
@@ -141,6 +142,15 @@ function applyTheme() {  const pref = state.settings.theme;
   document.documentElement.dataset.theme = dark ? 'dark' : 'light';
   const meta = document.querySelector('meta[name="theme-color"]');
   if (meta) meta.setAttribute('content', dark ? '#121317' : '#ffffff');
+}
+
+/** 输入框底边与键盘/屏幕底部的间距（用户可在设置里微调） */
+function applyComposerGap() {
+  const gap = Number(state.settings.composerGap);
+  document.documentElement.style.setProperty(
+    '--composer-gap',
+    (Number.isFinite(gap) ? Math.max(0, gap) : 0) + 'px'
+  );
 }
 
 function currentSession() {
@@ -1273,6 +1283,13 @@ function openSettings() {
       const label = document.getElementById('tempValue');
       if (label) label.textContent = Number(tempInput.value).toFixed(1);
     }
+    const gap = Number(state.settings.composerGap);
+    const gapInput = document.getElementById('setGap');
+    if (gapInput) {
+      gapInput.value = String(Number.isFinite(gap) ? gap : 0);
+      const gapLabel = document.getElementById('gapValue');
+      if (gapLabel) gapLabel.textContent = gapInput.value;
+    }
   } catch (err) {
     console.error('填充设置失败', err);
   }
@@ -1308,9 +1325,11 @@ async function saveSettingsFromForm() {
     systemPrompt: $('setSystem').value,
     theme: $('setTheme').value,
     temperature: Number($('setTemp').value),
+    composerGap: Number($('setGap').value),
   });
   saveSettings();
   applyTheme();
+  applyComposerGap();
   closeSettings();
 
   if (key) {
@@ -1446,6 +1465,13 @@ function bindEvents() {
   $('setTemp').addEventListener('input', (e) => {
     $('tempValue').textContent = Number(e.target.value).toFixed(1);
   });
+  $('setGap').addEventListener('input', (e) => {
+    const gap = Number(e.target.value);
+    $('gapValue').textContent = String(gap);
+    // 拖动时实时预览，点“保存”才会写进本地设置
+    state.settings.composerGap = gap;
+    applyComposerGap();
+  });
   $('btnCloseSettings').addEventListener('click', closeSettings);
   $('btnSaveSettings').addEventListener('click', saveSettingsFromForm);
   $('btnExport').addEventListener('click', doExport);
@@ -1495,11 +1521,17 @@ function closeSidebar() {
 
 /* ------------------------------ 启动 ------------------------------ */
 
-/** 键盘高度（像素）。个别实现里 window.innerHeight 会跟着缩，兜底不小于 0。 */
+// 无键盘时的可视区高度基准。iOS 独立 PWA 里键盘弹起时 innerHeight 也会跟着缩，
+// 用历史最大可视高度做基准才能稳定判断出“现在是键盘弹起状态”。
+let viewportBaseline = 0;
+
+/** 键盘高度（像素）。用基准高度减当前可视高度，兜底不小于 0。 */
 function keyboardHeight() {
   const vv = window.visualViewport;
   if (!vv) return 0;
-  return Math.max(0, Math.round(window.innerHeight - vv.height));
+  if (vv.height > viewportBaseline) viewportBaseline = vv.height;
+  const base = viewportBaseline || window.innerHeight;
+  return Math.max(0, Math.round(base - vv.height));
 }
 
 // 由 bindViewport 赋值；设置面板关闭等时机需要主动重新套用一次布局
@@ -1510,16 +1542,20 @@ function bindViewport() {
   if (!vv) return;
   const apply = () => {
     const root = document.documentElement;
+    if (vv.height > viewportBaseline) viewportBaseline = vv.height;
     const kb = keyboardHeight();
-    const keyboardOpen = kb > 120;
+    // 兜底：个别 iOS PWA 里可视区变化幅度可能很小，输入框聚焦且高度明显变矮也算键盘弹起
+    const chatInputFocused = document.activeElement === dom.input;
+    const keyboardOpen = kb > 120 || (chatInputFocused && vv.height < viewportBaseline - 60);
     const settingsOpen = !!dom.modal && !dom.modal.hidden;
+    const fullHeight = (viewportBaseline || window.innerHeight) + 'px';
 
     // 设置面板打开时不让整页上移避让键盘：.app 保持原位，只把键盘高度交给弹层（--kb），
     // 由弹层自己收缩让输入框留在键盘上方。否则 .app 收缩并底部对齐会把 API Key 等输入框顶出可视区。
     root.style.setProperty('--kb', settingsOpen && keyboardOpen ? kb + 'px' : '0px');
 
     if (settingsOpen && keyboardOpen) {
-      root.style.setProperty('--vvh', window.innerHeight + 'px');
+      root.style.setProperty('--vvh', fullHeight);
       root.style.setProperty('--vvy', '0px');
       root.classList.remove('kb-open');
       return;
@@ -1535,6 +1571,14 @@ function bindViewport() {
   vv.addEventListener('resize', apply);
   vv.addEventListener('scroll', apply);
   apply();
+
+  // 横竖屏切换后基准会失效，重新取一次
+  window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+      viewportBaseline = vv.height;
+      apply();
+    }, 250);
+  });
 
   // 兜底：部分 iOS 版本只有 focus 之后才更新 visualViewport
   dom.input.addEventListener('focus', () => setTimeout(apply, 120));
@@ -1560,6 +1604,7 @@ async function init() {
   });
 
   applyTheme();
+  applyComposerGap();
   bindEvents();
   bindViewport();
   autoGrow();
