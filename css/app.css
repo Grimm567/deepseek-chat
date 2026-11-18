@@ -679,21 +679,10 @@ body { overflow: hidden; }
   cursor: pointer;
 }
 
-.disclaimer {
-  margin: 6px 0 0;
-  text-align: center;
-  font-size: 11px;
-  color: var(--text-3);
-}
-
-/* 键盘弹起：去掉安全区留白和说明文字，让输入框直接贴住键盘 */
+/* 键盘弹起：去掉安全区留白，让输入框直接贴住键盘 */
 html.kb-open .composer-wrap {
   padding-bottom: 6px;
   padding-top: 4px;
-}
-
-html.kb-open .disclaimer {
-  display: none;
 }
 
 html.kb-open .chat {
