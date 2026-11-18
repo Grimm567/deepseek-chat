@@ -549,7 +549,7 @@ body { overflow: hidden; }
 
 .composer-wrap {
   flex-shrink: 0;
-  padding: 8px 14px calc(8px + var(--safe-bottom));
+  padding: 8px 14px calc(4px + var(--safe-bottom));
   background: var(--bg);
   position: relative;
   z-index: 2;
@@ -560,7 +560,7 @@ body { overflow: hidden; }
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--panel);
-  padding: 10px 12px 8px;
+  padding: 8px 12px 5px;
   box-shadow: 0 2px 12px rgba(20, 30, 60, .05);
 }
 
