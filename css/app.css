@@ -529,39 +529,34 @@ body { overflow: hidden; }
 
 .act:active { background: var(--bg-soft); }
 
-/* 桌面端：鼠标悬停消息时，在消息下方浮出「复制 / 修改」 */
+/* 桌面端：鼠标悬停消息时，在消息下方浮出「复制 / 修改」图标 */
 .hover-actions {
   position: absolute;
-  right: 0;
-  bottom: -30px;
+  left: 0;
+  bottom: -34px;
   display: flex;
   gap: 2px;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--panel);
-  box-shadow: 0 4px 14px rgba(20, 30, 60, .12);
   opacity: 0;
   pointer-events: none;
   transition: opacity .12s;
   z-index: 6;
 }
 
+.msg.user .hover-actions { left: auto; right: 0; }
+
 .hover-actions .hact {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   color: var(--text-2);
-  font-size: 12px;
-  padding: 4px 9px;
-  border-radius: 7px;
   cursor: pointer;
 }
 
 .hover-actions .hact:hover { background: var(--bg-soft); color: var(--text); }
-
-@media (hover: hover) {
-  .msg:hover .hover-actions { opacity: 1; pointer-events: auto; }
-}
 
 /* 桌面端用悬停菜单代替常驻操作行 */
 html[data-device="desktop"] .msg-actions { display: none; }

@@ -555,7 +555,9 @@ function messageNode(msg, index, session, variantInfo) {
     }
     wrap.appendChild(bubble);
     appendVariants(wrap, session, msg, variantInfo);
-    wrap.appendChild(hoverActions(msg, index, session, msg.content || ''));
+    const hoverBar = hoverActions(msg, index, session, msg.content || '');
+    wrap.appendChild(hoverBar);
+    bindHoverActions(wrap, hoverBar);
     bindLongPress(wrap, () => openMessageMenu(msg, index, session));
     wrap.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -642,7 +644,9 @@ function messageNode(msg, index, session, variantInfo) {
   }
   wrap.appendChild(actions);
   appendVariants(wrap, session, msg, variantInfo);
-  wrap.appendChild(hoverActions(msg, index, session, content));
+  const hoverBar = hoverActions(msg, index, session, content);
+  wrap.appendChild(hoverBar);
+  bindHoverActions(wrap, hoverBar);
 
   bindLongPress(wrap, () => openMessageMenu(msg, index, session));
   wrap.addEventListener('contextmenu', (e) => {
@@ -654,15 +658,24 @@ function messageNode(msg, index, session, variantInfo) {
 
 /* ------------------------------ 消息编辑 ------------------------------ */
 
-/** 桌面端悬停菜单：复制 / 修改 */
+const ICON_COPY = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="11" height="11" rx="2.2"></rect><path d="M5.5 14.5V6.2A1.7 1.7 0 0 1 7.2 4.5h8.3"></path></svg>';
+const ICON_EDIT = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4.6-1.1L19 8.5a2.1 2.1 0 0 0-3-3L5.6 15.9 4 20z"></path><path d="M13.6 6.4l3 3"></path></svg>';
+
+/** 桌面端悬停菜单：复制 / 修改（图标） */
 function hoverActions(msg, index, session, text) {
   const bar = el('div', 'hover-actions');
-  const copy = el('button', 'hact', '复制');
+  const copy = el('button', 'hact');
+  copy.type = 'button';
+  copy.title = '复制';
+  copy.innerHTML = ICON_COPY;
   copy.addEventListener('click', (e) => {
     e.stopPropagation();
     copyText(text);
   });
-  const edit = el('button', 'hact', '修改');
+  const edit = el('button', 'hact');
+  edit.type = 'button';
+  edit.title = '修改';
+  edit.innerHTML = ICON_EDIT;
   edit.addEventListener('click', (e) => {
     e.stopPropagation();
     startEdit(msg, index, session);
@@ -670,6 +683,31 @@ function hoverActions(msg, index, session, text) {
   bar.appendChild(copy);
   bar.appendChild(edit);
   return bar;
+}
+
+/**
+ * 悬停判定范围：消息区域 + 下方按钮那一行。
+ * 鼠标从消息移到按钮会经过中间的空隙，用延迟兜住，避免按钮闪退。
+ */
+function bindHoverActions(wrap, bar) {
+  if (document.documentElement.dataset.device !== 'desktop') return;
+  let hideTimer = 0;
+  const show = () => {
+    clearTimeout(hideTimer);
+    bar.style.opacity = '1';
+    bar.style.pointerEvents = 'auto';
+  };
+  const hide = () => {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      bar.style.opacity = '0';
+      bar.style.pointerEvents = 'none';
+    }, 160);
+  };
+  wrap.addEventListener('mouseenter', show);
+  wrap.addEventListener('mouseleave', hide);
+  bar.addEventListener('mouseenter', show);
+  bar.addEventListener('mouseleave', hide);
 }
 
 function clearEdit() {
