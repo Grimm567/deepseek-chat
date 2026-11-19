@@ -530,6 +530,15 @@ body { overflow: hidden; }
 .act:active { background: var(--bg-soft); }
 
 /* 桌面端：鼠标悬停消息时，在消息下方浮出「复制 / 修改」图标 */
+/* 判定范围 = 消息本体 + 下方按钮那一整行（透明扩展区），见 hover-zone */
+.hover-zone {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -36px;
+  height: 36px;
+}
+
 .hover-actions {
   position: absolute;
   left: 0;
@@ -557,6 +566,10 @@ body { overflow: hidden; }
 }
 
 .hover-actions .hact:hover { background: var(--bg-soft); color: var(--text); }
+
+@media (hover: hover) {
+  .msg:hover .hover-actions { opacity: 1; pointer-events: auto; }
+}
 
 /* 桌面端用悬停菜单代替常驻操作行 */
 html[data-device="desktop"] .msg-actions { display: none; }

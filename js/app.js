@@ -555,9 +555,8 @@ function messageNode(msg, index, session, variantInfo) {
     }
     wrap.appendChild(bubble);
     appendVariants(wrap, session, msg, variantInfo);
-    const hoverBar = hoverActions(msg, index, session, msg.content || '');
-    wrap.appendChild(hoverBar);
-    bindHoverActions(wrap, hoverBar);
+    wrap.appendChild(el('div', 'hover-zone'));
+    wrap.appendChild(hoverActions(msg, index, session, msg.content || ''));
     bindLongPress(wrap, () => openMessageMenu(msg, index, session));
     wrap.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -644,9 +643,8 @@ function messageNode(msg, index, session, variantInfo) {
   }
   wrap.appendChild(actions);
   appendVariants(wrap, session, msg, variantInfo);
-  const hoverBar = hoverActions(msg, index, session, content);
-  wrap.appendChild(hoverBar);
-  bindHoverActions(wrap, hoverBar);
+  wrap.appendChild(el('div', 'hover-zone'));
+  wrap.appendChild(hoverActions(msg, index, session, content));
 
   bindLongPress(wrap, () => openMessageMenu(msg, index, session));
   wrap.addEventListener('contextmenu', (e) => {
@@ -683,31 +681,6 @@ function hoverActions(msg, index, session, text) {
   bar.appendChild(copy);
   bar.appendChild(edit);
   return bar;
-}
-
-/**
- * 悬停判定范围：消息区域 + 下方按钮那一行。
- * 鼠标从消息移到按钮会经过中间的空隙，用延迟兜住，避免按钮闪退。
- */
-function bindHoverActions(wrap, bar) {
-  if (document.documentElement.dataset.device !== 'desktop') return;
-  let hideTimer = 0;
-  const show = () => {
-    clearTimeout(hideTimer);
-    bar.style.opacity = '1';
-    bar.style.pointerEvents = 'auto';
-  };
-  const hide = () => {
-    clearTimeout(hideTimer);
-    hideTimer = setTimeout(() => {
-      bar.style.opacity = '0';
-      bar.style.pointerEvents = 'none';
-    }, 160);
-  };
-  wrap.addEventListener('mouseenter', show);
-  wrap.addEventListener('mouseleave', hide);
-  bar.addEventListener('mouseenter', show);
-  bar.addEventListener('mouseleave', hide);
 }
 
 function clearEdit() {
