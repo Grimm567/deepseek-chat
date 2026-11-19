@@ -336,7 +336,7 @@ body { overflow: hidden; }
 
 .messages { display: flex; flex-direction: column; gap: 22px; padding-bottom: 8px; }
 
-.msg { display: flex; flex-direction: column; max-width: 100%; }
+.msg { display: flex; flex-direction: column; max-width: 100%; position: relative; }
 
 .msg.user { align-items: flex-end; }
 
@@ -528,6 +528,120 @@ body { overflow: hidden; }
 }
 
 .act:active { background: var(--bg-soft); }
+
+/* 桌面端：鼠标悬停消息时，在消息下方浮出「复制 / 修改」 */
+.hover-actions {
+  position: absolute;
+  right: 0;
+  bottom: -30px;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  box-shadow: 0 4px 14px rgba(20, 30, 60, .12);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .12s;
+  z-index: 6;
+}
+
+.hover-actions .hact {
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  padding: 4px 9px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.hover-actions .hact:hover { background: var(--bg-soft); color: var(--text); }
+
+@media (hover: hover) {
+  .msg:hover .hover-actions { opacity: 1; pointer-events: auto; }
+}
+
+/* 桌面端用悬停菜单代替常驻操作行 */
+html[data-device="desktop"] .msg-actions { display: none; }
+
+/* 就地编辑：消息变成带蓝色边框的编辑框 */
+.msg-editor {
+  width: 100%;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--blue);
+  border-radius: 18px;
+  background: var(--panel);
+  box-shadow: 0 0 0 3px rgba(77, 107, 254, .07);
+}
+
+.msg-editor-images { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.msg-editor-image { position: relative; width: 64px; height: 64px; }
+
+.msg-editor-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 10px;
+  display: block;
+}
+
+.msg-editor-image .img-del {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .62);
+  color: #fff;
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.msg-editor-text {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  resize: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  line-height: 1.5;
+  min-height: 46px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.msg-editor-bar { display: flex; align-items: center; gap: 8px; }
+
+.msg-editor-bar .attach-btn {
+  margin-right: auto;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+}
+
+.msg-editor-bar .attach-btn:hover { background: var(--bg-soft); }
+
+.msg-editor-bar .ghost-btn,
+.msg-editor-bar .primary-btn {
+  padding: 7px 16px;
+  font-size: 13px;
+}
 
 .scroll-bottom {
   position: absolute;

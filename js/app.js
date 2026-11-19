@@ -44,6 +44,10 @@ const state = {
   query: '',
   selectMode: false,
   selected: new Set(),
+  // 就地编辑：正在编辑的消息 id、编辑框里的文字和图片
+  editingId: null,
+  editingText: '',
+  editingImages: [],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -151,6 +155,62 @@ function applyComposerGap() {
     '--composer-gap',
     (Number.isFinite(gap) ? Math.max(0, gap) : 0) + 'px'
   );
+}
+
+/* ------------------------------ 设备类型 ------------------------------ */
+
+// 判定“手机”看输入方式和视口，而不是只信 UA：触屏笔记本 / iPad / 请求桌面站点都不会误伤。
+const mqCoarse = window.matchMedia('(pointer: coarse)');
+const mqHover = window.matchMedia('(hover: hover)');
+
+const device = {
+  phone: false,
+  touch: false,
+  ios: false,
+  android: false,
+  standalone: false,
+};
+
+function detectDevice() {
+  const ua = navigator.userAgent || '';
+  const ios = /iPad|iPhone|iPod/.test(ua) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const android = /Android/.test(ua);
+  const touch = mqCoarse.matches || navigator.maxTouchPoints > 0;
+  const standalone = window.matchMedia('(display-mode: standalone)').matches ||
+    window.navigator.standalone === true;
+  return {
+    // 手机 = 触摸输入 + 没有 hover + 窄视口；平板/触屏笔记本走桌面分支
+    phone: touch && !mqHover.matches && window.innerWidth < 900,
+    touch,
+    ios,
+    android,
+    standalone,
+  };
+}
+
+/** 把设备信息写到 <html> 的 data 属性上，CSS 和 JS 都能直接用 */
+function applyDeviceClass() {
+  Object.assign(device, detectDevice());
+  const root = document.documentElement;
+  root.dataset.device = device.phone ? 'phone' : 'desktop';
+  if (device.ios) root.dataset.platform = 'ios';
+  else if (device.android) root.dataset.platform = 'android';
+  else delete root.dataset.platform;
+  if (device.standalone) root.dataset.standalone = 'true';
+  else delete root.dataset.standalone;
+}
+
+function bindDeviceWatchers() {
+  let timer = 0;
+  const refresh = () => {
+    if (timer) return;
+    timer = setTimeout(() => { timer = 0; applyDeviceClass(); }, 200);
+  };
+  window.addEventListener('resize', refresh);
+  window.addEventListener('orientationchange', refresh);
+  mqCoarse.addEventListener('change', refresh);
+  mqHover.addEventListener('change', refresh);
 }
 
 function currentSession() {
@@ -471,6 +531,7 @@ function renderTimeline(container, items) {
 }
 
 function messageNode(msg, index, session, variantInfo) {
+  if (state.editingId === msg.id) return messageEditorNode(msg, index, session);
   const wrap = el('div', 'msg ' + (msg.role === 'user' ? 'user' : 'assistant'));
   wrap.dataset.index = String(index);
   wrap.dataset.id = String(msg.id);
@@ -494,6 +555,7 @@ function messageNode(msg, index, session, variantInfo) {
     }
     wrap.appendChild(bubble);
     appendVariants(wrap, session, msg, variantInfo);
+    wrap.appendChild(hoverActions(msg, index, session, msg.content || ''));
     bindLongPress(wrap, () => openMessageMenu(msg, index, session));
     wrap.addEventListener('contextmenu', (e) => {
       e.preventDefault();
@@ -580,6 +642,7 @@ function messageNode(msg, index, session, variantInfo) {
   }
   wrap.appendChild(actions);
   appendVariants(wrap, session, msg, variantInfo);
+  wrap.appendChild(hoverActions(msg, index, session, content));
 
   bindLongPress(wrap, () => openMessageMenu(msg, index, session));
   wrap.addEventListener('contextmenu', (e) => {
@@ -587,6 +650,180 @@ function messageNode(msg, index, session, variantInfo) {
     openMessageMenu(msg, index, session);
   });
   return wrap;
+}
+
+/* ------------------------------ 消息编辑 ------------------------------ */
+
+/** 桌面端悬停菜单：复制 / 修改 */
+function hoverActions(msg, index, session, text) {
+  const bar = el('div', 'hover-actions');
+  const copy = el('button', 'hact', '复制');
+  copy.addEventListener('click', (e) => {
+    e.stopPropagation();
+    copyText(text);
+  });
+  const edit = el('button', 'hact', '修改');
+  edit.addEventListener('click', (e) => {
+    e.stopPropagation();
+    startEdit(msg, index, session);
+  });
+  bar.appendChild(copy);
+  bar.appendChild(edit);
+  return bar;
+}
+
+function clearEdit() {
+  state.editingId = null;
+  state.editingText = '';
+  state.editingImages = [];
+}
+
+/** 光标放到编辑框末尾 */
+function focusEditor() {
+  const ta = document.querySelector('.msg-editor-text');
+  if (!ta) return;
+  ta.focus();
+  const end = ta.value.length;
+  ta.setSelectionRange(end, end);
+  autoGrowEditor(ta);
+}
+
+function autoGrowEditor(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight, 240) + 'px';
+}
+
+/** 就地编辑节点：消息位置变成一个带边框的编辑框 */
+function messageEditorNode(msg, index, session) {
+  const wrap = el('div', 'msg editing ' + (msg.role === 'user' ? 'user' : 'assistant'));
+  wrap.dataset.index = String(index);
+  wrap.dataset.id = String(msg.id);
+
+  const box = el('div', 'msg-editor');
+
+  if (state.editingImages.length) {
+    const images = el('div', 'msg-editor-images');
+    state.editingImages.forEach((img, i) => {
+      const holder = el('div', 'msg-editor-image');
+      const im = el('img');
+      im.src = img.dataUrl;
+      im.alt = img.name || '图片';
+      const del = el('button', 'img-del', '×');
+      del.title = '移除图片';
+      del.addEventListener('click', () => {
+        state.editingImages.splice(i, 1);
+        renderMessages();
+        focusEditor();
+      });
+      holder.appendChild(im);
+      holder.appendChild(del);
+      images.appendChild(holder);
+    });
+    box.appendChild(images);
+  }
+
+  const ta = el('textarea', 'msg-editor-text');
+  ta.value = state.editingText;
+  ta.rows = 2;
+  ta.placeholder = '修改内容…';
+  ta.addEventListener('input', () => {
+    state.editingText = ta.value;
+    autoGrowEditor(ta);
+  });
+  ta.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      submitEdit(session, index);
+    }
+  });
+  box.appendChild(ta);
+
+  const bar = el('div', 'msg-editor-bar');
+  const attach = el('button', 'attach-btn', '图片');
+  attach.title = '添加图片';
+  attach.addEventListener('click', () => triggerFile('gallery'));
+  const cancel = el('button', 'ghost-btn', '取消');
+  cancel.addEventListener('click', cancelEdit);
+  const sendBtn = el('button', 'primary-btn', '发送');
+  sendBtn.addEventListener('click', () => submitEdit(session, index));
+  bar.appendChild(attach);
+  bar.appendChild(cancel);
+  bar.appendChild(sendBtn);
+  box.appendChild(bar);
+
+  wrap.appendChild(box);
+  return wrap;
+}
+
+function startEdit(msg, index, session) {
+  if (state.streaming) return;
+  state.editingId = msg.id;
+  state.editingText = msg.content || '';
+  state.editingImages = (msg.images || []).map((img) => Object.assign({}, img));
+  renderMessages();
+  focusEditor();
+}
+
+function cancelEdit() {
+  if (!state.editingId) return;
+  clearEdit();
+  renderMessages();
+}
+
+/** 提交修改：用户消息作为新分支重发，助手消息生成新的版本 */
+function submitEdit(session, index) {
+  const msg = session.messages[index];
+  if (!msg) return;
+  const text = (state.editingText || '').trim();
+  const images = state.editingImages.slice();
+
+  if (msg.role === 'user') {
+    if (!text && !images.length) return;
+    dom.input.value = text;
+    state.draftImages = images;
+    // 发送时从这里截断，等同「改完重问」
+    state.editFrom = { sessionId: session.id, messageId: msg.id };
+    clearEdit();
+    autoGrow();
+    updateSendButton();
+    send();
+    return;
+  }
+
+  if (!text) return;
+  const next = {
+    id: db.newId(),
+    role: 'assistant',
+    parentId: msg.parentId,
+    content: text,
+    reasoning: '',
+    blocks: [],
+    citations: [],
+    thinking: !!msg.thinking,
+    search: !!msg.search,
+    pending: false,
+    status: 'done',
+    ts: Date.now(),
+  };
+  session.messages.push(next);
+  if (!session.choice) session.choice = {};
+  session.choice[parentKeyOf(msg)] = next.id;
+  touchSession(session);
+  persist(session);
+  clearEdit();
+  renderAll();
+}
+
+async function addImagesToEdit(files) {
+  const list = Array.from(files).slice(0, 6);
+  for (const file of list) {
+    if (!file.type.startsWith('image/')) continue;
+    try {
+      state.editingImages.push(await readImage(file));
+    } catch { /* 跳过坏图 */ }
+  }
+  renderMessages();
+  focusEditor();
 }
 
 /**
@@ -1425,6 +1662,8 @@ function bindEvents() {
   });
 
   dom.input.addEventListener('input', () => {
+    // 开始在日常输入框里打字时，自动退出消息的就地编辑（编辑框复位到修改前）
+    if (state.editingId) cancelEdit();
     autoGrow();
     updateSendButton();
   });
@@ -1615,7 +1854,9 @@ async function init() {
   });
 
   applyTheme();
+  applyDeviceClass();
   applyComposerGap();
+  bindDeviceWatchers();
   bindEvents();
   bindViewport();
   autoGrow();
@@ -1631,7 +1872,10 @@ async function init() {
   dom.imageInput.accept = 'image/*';
   dom.imageInput.addEventListener('change', async (e) => {
     const files = e.target.files;
-    if (files && files.length) await addImages(files);
+    if (files && files.length) {
+      if (state.editingId) await addImagesToEdit(files);
+      else await addImages(files);
+    }
     e.target.value = '';
   });
 
@@ -1649,7 +1893,7 @@ async function init() {
   window.__dsDebug = true;
 
   // 调试钩子：Console 里可以直接检查元素和手动触发
-  window.__ds = { state, dom, openSettings, closeSettings, send };
+  window.__ds = { state, dom, openSettings, closeSettings, send, renderAll };
   window.__dsCheck = () =>
     Object.keys(dom).filter((k) => !dom[k]).concat(['all-ok']);
 }
