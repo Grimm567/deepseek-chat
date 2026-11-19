@@ -658,8 +658,9 @@ function messageNode(msg, index, session, variantInfo) {
 
 const ICON_COPY = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="11" height="11" rx="2.2"></rect><path d="M5.5 14.5V6.2A1.7 1.7 0 0 1 7.2 4.5h8.3"></path></svg>';
 const ICON_EDIT = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4.6-1.1L19 8.5a2.1 2.1 0 0 0-3-3L5.6 15.9 4 20z"></path><path d="M13.6 6.4l3 3"></path></svg>';
+const ICON_REGEN = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v5h-5"></path></svg>';
 
-/** 桌面端悬停菜单：复制 / 修改（图标） */
+/** 桌面端悬停菜单：用户消息 =「复制 / 修改」，助手消息 =「复制 / 重新生成」 */
 function hoverActions(msg, index, session, text) {
   const bar = el('div', 'hover-actions');
   const copy = el('button', 'hact');
@@ -670,16 +671,29 @@ function hoverActions(msg, index, session, text) {
     e.stopPropagation();
     copyText(text);
   });
-  const edit = el('button', 'hact');
-  edit.type = 'button';
-  edit.title = '修改';
-  edit.innerHTML = ICON_EDIT;
-  edit.addEventListener('click', (e) => {
-    e.stopPropagation();
-    startEdit(msg, index, session);
-  });
   bar.appendChild(copy);
-  bar.appendChild(edit);
+
+  if (msg.role === 'user') {
+    const edit = el('button', 'hact');
+    edit.type = 'button';
+    edit.title = '修改';
+    edit.innerHTML = ICON_EDIT;
+    edit.addEventListener('click', (e) => {
+      e.stopPropagation();
+      startEdit(msg, index, session);
+    });
+    bar.appendChild(edit);
+  } else {
+    const regen = el('button', 'hact');
+    regen.type = 'button';
+    regen.title = '重新生成';
+    regen.innerHTML = ICON_REGEN;
+    regen.addEventListener('click', (e) => {
+      e.stopPropagation();
+      regenerate(session, index);
+    });
+    bar.appendChild(regen);
+  }
   return bar;
 }
 
