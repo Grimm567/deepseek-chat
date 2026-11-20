@@ -998,6 +998,28 @@ html.kb-open .chat {
 .field input:focus,
 .field textarea:focus { border-color: var(--blue); }
 
+/* 开关型设置项：标题在左、勾选框在右 */
+.field-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.field-switch > span { margin-bottom: 0; }
+
+.field-switch input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  accent-color: var(--blue);
+  cursor: pointer;
+}
+
 .hint {
   margin: -6px 0 14px;
   font-size: 12px;

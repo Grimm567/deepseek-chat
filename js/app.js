@@ -16,6 +16,7 @@ const DEFAULTS = {
   search: false,
   temperature: 1,
   composerGap: 0,
+  autoScroll: true,
 };
 
 function loadSettings() {
@@ -1333,7 +1334,7 @@ async function runCompletion(session, assistantMsg) {
     renderMessages();
     renderSidebar();
     updateSendButton();
-    scrollToBottom(true);
+    if (state.settings.autoScroll !== false) scrollToBottom(true);
   }
 }
 
@@ -1464,7 +1465,7 @@ async function continueReply(session, index) {
     persist(session);
     renderMessages();
     updateSendButton();
-    scrollToBottom(true);
+    if (state.settings.autoScroll !== false) scrollToBottom(true);
   }
 }
 
@@ -1732,6 +1733,8 @@ function openSettings() {
       const gapLabel = document.getElementById('gapValue');
       if (gapLabel) gapLabel.textContent = gapInput.value;
     }
+    const autoScrollInput = document.getElementById('setAutoScroll');
+    if (autoScrollInput) autoScrollInput.checked = state.settings.autoScroll !== false;
   } catch (err) {
     console.error('填充设置失败', err);
   }
@@ -1768,6 +1771,7 @@ async function saveSettingsFromForm() {
     theme: $('setTheme').value,
     temperature: Number($('setTemp').value),
     composerGap: Number($('setGap').value),
+    autoScroll: $('setAutoScroll').checked,
   });
   saveSettings();
   applyTheme();
@@ -1925,6 +1929,9 @@ function bindEvents() {
     // 拖动时实时预览，点“保存”才会写进本地设置
     state.settings.composerGap = gap;
     applyComposerGap();
+  });
+  $('setAutoScroll').addEventListener('change', (e) => {
+    state.settings.autoScroll = e.target.checked;
   });
   $('btnCloseSettings').addEventListener('click', closeSettings);
   $('btnSaveSettings').addEventListener('click', saveSettingsFromForm);
