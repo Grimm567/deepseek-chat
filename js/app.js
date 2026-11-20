@@ -1520,8 +1520,23 @@ async function readImage(file) {
   };
 }
 
-const MAX_TXT_BYTES = 1024 * 1024; // txt 文件上限 1MB
-const PASTE_TXT_MIN = 3000;        // 手机端一次粘贴超过这个字数就转成 txt 附件
+const MAX_TXT_BYTES = 1024 * 1024; // 文本文件上限 1MB
+const PASTE_TXT_MIN = 3000;        // 一次粘贴超过这个字数就转成文本附件
+
+// 纯文本类文件：txt / json / md / csv / 日志 / 配置 / 常见源码都按文本读取，
+// 发送时统一用「【文件：文件名】+ 原文」的格式
+const TEXT_FILE_EXT = /\.(txt|text|md|markdown|json|jsonl|ndjson|csv|tsv|log|yaml|yml|xml|html?|js|mjs|cjs|ts|tsx|jsx|py|java|c|h|cpp|cs|go|rs|rb|php|css|scss|less|ini|cfg|conf|env|sh|bash|bat|cmd|ps1|sql|toml|properties)$/i;
+
+function isTextFile(file) {
+  const name = file.name || '';
+  const type = (file.type || '').toLowerCase();
+  if (TEXT_FILE_EXT.test(name)) return true;
+  if (type.startsWith('text/')) return true;
+  if (type === 'application/json' || type.endsWith('+json')) return true;
+  if (type === 'application/xml' || type.endsWith('+xml')) return true;
+  if (type === 'application/javascript') return true;
+  return false;
+}
 
 function readTextFile(file) {
   return new Promise((resolve, reject) => {
@@ -1584,9 +1599,8 @@ async function addTxtFiles(files, toEditor) {
   const list = Array.from(files).slice(0, 6);
   let added = 0;
   for (const file of list) {
-    const isTxt = /\.txt$/i.test(file.name || '') || file.type === 'text/plain';
-    if (!isTxt) {
-      toast('只支持图片和 txt 文本');
+    if (!isTextFile(file)) {
+      toast('只支持图片和文本类文件');
       continue;
     }
     if (file.size > MAX_TXT_BYTES) {
@@ -1910,9 +1924,9 @@ function bindEvents() {
     const now = performance.now();
     const cur = dom.input.value;
     const grew = cur.length - inputTrackValue.length;
-    // 手机端：一次 input 事件就多出 3000 字以上。系统粘贴和第三方输入法的剪贴板
-    // 都会表现为「一次事件塞进一大段文字」，比只监听 paste 更可靠。
-    if (document.documentElement.dataset.device === 'phone' && grew >= PASTE_TXT_MIN) {
+    // 一次 input 事件就多出 3000 字以上（系统粘贴、第三方输入法/插件剪贴板都走这里），
+    // 手机和电脑都按长文本处理。
+    if (grew >= PASTE_TXT_MIN) {
       const { inserted, restored } = splitInsertion(inputTrackValue, cur);
       if (inserted.trim().length >= PASTE_TXT_MIN) {
         dom.input.value = restored;
@@ -1931,9 +1945,8 @@ function bindEvents() {
     updateSendButton();
   });
 
-  // 手机端一次粘贴超过 3000 字：转成 txt 附件，而不是把长文塞进输入框
+  // 一次粘贴超过 3000 字：转成 txt 附件，而不是把长文塞进输入框（手机和电脑都生效）
   dom.input.addEventListener('paste', (e) => {
-    if (document.documentElement.dataset.device !== 'phone') return;
     const data = e.clipboardData || window.clipboardData;
     const text = data ? data.getData('text') : '';
     if (!text || text.length <= PASTE_TXT_MIN) return;
@@ -2044,9 +2057,9 @@ function bindDragDrop() {
     if (!list.length) return;
     const toEditor = !!zone && zone.classList.contains('msg-editor');
     const images = list.filter((f) => f.type.startsWith('image/'));
-    const txts = list.filter((f) => /\.txt$/i.test(f.name || '') || f.type === 'text/plain');
+    const txts = list.filter(isTextFile);
     if (!images.length && !txts.length) {
-      toast('只支持图片和 txt 文本');
+      toast('只支持图片和文本类文件');
       return;
     }
     if (txts.length) await addTxtFiles(txts, toEditor);
