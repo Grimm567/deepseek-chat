@@ -48,6 +48,9 @@ const state = {
   editingId: null,
   editingText: '',
   editingImages: [],
+  // txt 附件：待发（草稿）和编辑框里的
+  draftFiles: [],
+  editingFiles: [],
 };
 
 const $ = (id) => document.getElementById(id);
@@ -75,6 +78,7 @@ const dom = {
   modal: $('settingsModal'),
   toast: $('toast'),
   imageInput: $('imageInput'),
+  txtInput: $('txtInput'),
   archiveInput: $('archiveInput'),
   composer: $('composer'),
 };
@@ -548,6 +552,16 @@ function messageNode(msg, index, session, variantInfo) {
       }
       bubble.appendChild(gallery);
     }
+    if (msg.files && msg.files.length) {
+      const filesWrap = el('div', 'msg-files');
+      msg.files.forEach((file) => {
+        filesWrap.appendChild(txtChip(file, {
+          title: '双击插入到输入框',
+          onOpen: () => insertTextAtFront(file.text, state.editingId ? 'editor' : 'draft'),
+        }));
+      });
+      bubble.appendChild(filesWrap);
+    }
     if (msg.content) {
       const body = el('div', 'bubble-text md');
       body.innerHTML = renderMarkdown(msg.content);
@@ -701,6 +715,7 @@ function clearEdit() {
   state.editingId = null;
   state.editingText = '';
   state.editingImages = [];
+  state.editingFiles = [];
 }
 
 /** 光标放到编辑框末尾 */
@@ -747,6 +762,25 @@ function messageEditorNode(msg, index, session) {
     box.appendChild(images);
   }
 
+  if (state.editingFiles.length) {
+    const filesWrap = el('div', 'msg-editor-images');
+    state.editingFiles.forEach((file, i) => {
+      filesWrap.appendChild(txtChip(file, {
+        title: '双击插入到编辑框',
+        onRemove: () => {
+          state.editingFiles.splice(i, 1);
+          renderMessages();
+          focusEditor();
+        },
+        onOpen: () => {
+          state.editingFiles.splice(i, 1);
+          insertTextAtFront(file.text, 'editor');
+        },
+      }));
+    });
+    box.appendChild(filesWrap);
+  }
+
   const ta = el('textarea', 'msg-editor-text');
   ta.value = state.editingText;
   ta.rows = 2;
@@ -785,6 +819,7 @@ function startEdit(msg, index, session) {
   state.editingId = msg.id;
   state.editingText = msg.content || '';
   state.editingImages = (msg.images || []).map((img) => Object.assign({}, img));
+  state.editingFiles = (msg.files || []).map((f) => Object.assign({}, f));
   renderMessages();
   focusEditor();
 }
@@ -801,11 +836,13 @@ function submitEdit(session, index) {
   if (!msg) return;
   const text = (state.editingText || '').trim();
   const images = state.editingImages.slice();
+  const files = state.editingFiles.slice();
 
   if (msg.role === 'user') {
-    if (!text && !images.length) return;
+    if (!text && !images.length && !files.length) return;
     dom.input.value = text;
     state.draftImages = images;
+    state.draftFiles = files;
     // 发送时从这里截断，等同「改完重问」
     state.editFrom = { sessionId: session.id, messageId: msg.id };
     clearEdit();
@@ -1072,13 +1109,16 @@ async function send() {
     return;
   }
 
-  let session = currentSession();
-  if (!session) session = newSession();
-
+  // 先把待发内容取出来：newSession() 会清空 draftImages，顺序反了会把图片丢掉
   const images = state.draftImages.slice();
+  const files = state.draftFiles.slice();
   state.draftImages = [];
+  state.draftFiles = [];
   dom.input.value = '';
   autoGrow();
+
+  let session = currentSession();
+  if (!session) session = newSession();
 
   const assistantOf = (userMsg) => ({
     id: db.newId(),
@@ -1107,6 +1147,7 @@ async function send() {
         parentId: old.parentId || null,
         content: text,
         images,
+        files,
         ts: Date.now(),
       };
       const newAssistant = assistantOf(newUser);
@@ -1131,6 +1172,7 @@ async function send() {
     parentId: tail ? tail.id : null,
     content: text,
     images,
+    files,
     ts: Date.now(),
   };
 
@@ -1155,7 +1197,7 @@ async function runCompletion(session, assistantMsg) {
 
   const history = currentPath(session)
     .filter((m) => m !== assistantMsg)
-    .map((m) => ({ role: m.role, content: m.content, images: m.images }));
+    .map((m) => ({ role: m.role, content: m.content, images: m.images, files: m.files }));
 
   // 按服务端内容块的下标存放：thinking / search / open / text，渲染时按顺序还原
   const blocks = [];
@@ -1337,7 +1379,7 @@ async function continueReply(session, index) {
   }
 
   const history = session.messages.slice(0, index + 1)
-    .map((m) => ({ role: m.role, content: m.content, images: m.images }));
+    .map((m) => ({ role: m.role, content: m.content, images: m.images, files: m.files }));
 
   const baseContent = msg.content;
   const baseReasoning = msg.reasoning || '';
@@ -1472,6 +1514,110 @@ async function readImage(file) {
   };
 }
 
+const MAX_TXT_BYTES = 1024 * 1024; // txt 文件上限 1MB
+const PASTE_TXT_MIN = 3000;        // 手机端一次粘贴超过这个字数就转成 txt 附件
+
+function readTextFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ''));
+    reader.onerror = () => reject(new Error('读取文件失败'));
+    reader.readAsText(file, 'utf-8');
+  });
+}
+
+/** 自动生成的文件名：取文本前 7 个字 */
+function txtNameFromText(text) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  return clean.slice(0, 7) || '文本';
+}
+
+function makeTxtFile(name, text) {
+  const raw = String(text || '');
+  return {
+    id: db.newId(),
+    name: String(name || 'text.txt').slice(0, 80),
+    text: raw,
+    size: raw.length,
+  };
+}
+
+/** 把文本插到输入框（或编辑框）已有内容的前面 */
+function insertTextAtFront(text, target) {
+  const body = String(text || '');
+  if (!body) return;
+  if (target === 'editor' && state.editingId) {
+    state.editingText = body + (state.editingText ? '\n' + state.editingText : '');
+    renderMessages();
+    focusEditor();
+    return;
+  }
+  const existing = dom.input.value || '';
+  const sep = existing && !existing.startsWith('\n') ? '\n' : '';
+  dom.input.value = body + sep + existing;
+  autoGrow();
+  updateSendButton();
+}
+
+/** 把某个 txt 附件展开成正文并移出附件列表 */
+function insertFileInto(files, index, target) {
+  const file = files[index];
+  if (!file) return;
+  files.splice(index, 1);
+  insertTextAtFront(file.text, target);
+  if (target === 'editor' && state.editingId) {
+    renderMessages();
+    focusEditor();
+  } else {
+    renderDraft();
+    updateSendButton();
+  }
+}
+
+async function addTxtFiles(files, toEditor) {
+  const list = Array.from(files).slice(0, 6);
+  let added = 0;
+  for (const file of list) {
+    const isTxt = /\.txt$/i.test(file.name || '') || file.type === 'text/plain';
+    if (!isTxt) {
+      toast('只支持图片和 txt 文本');
+      continue;
+    }
+    if (file.size > MAX_TXT_BYTES) {
+      toast('文本文件太大了（超过 1MB）');
+      continue;
+    }
+    try {
+      const text = await readTextFile(file);
+      const entry = makeTxtFile(file.name, text);
+      if (toEditor && state.editingId) state.editingFiles.push(entry);
+      else state.draftFiles.push(entry);
+      added += 1;
+    } catch (err) {
+      toast(err.message || '文件读取失败');
+    }
+  }
+  if (!added) return;
+  if (toEditor && state.editingId) {
+    renderMessages();
+    focusEditor();
+  } else {
+    renderDraft();
+    updateSendButton();
+  }
+  toast(`已添加 ${added} 个文本文件`);
+}
+
+/** 手机端一次粘贴超长文本：自动转成 txt 附件 */
+function addPastedTextAsFile(text) {
+  const clean = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!clean) return;
+  state.draftFiles.push(makeTxtFile(`${txtNameFromText(clean)}.txt`, clean));
+  renderDraft();
+  updateSendButton();
+  toast('文本较长，已转为 txt 附件');
+}
+
 async function addImages(files) {
   const list = Array.from(files).slice(0, 6);
   for (const file of list) {
@@ -1493,9 +1639,29 @@ async function addImages(files) {
   updateSendButton();
 }
 
+/** txt 附件方块：长方形，显示文件名 */
+function txtChip(file, opts = {}) {
+  const cell = el('div', 'draft-file');
+  if (opts.title) cell.title = opts.title;
+  cell.appendChild(el('div', 'draft-file-name', file.name));
+  const size = file.size || 0;
+  const sizeText = size >= 1000 ? `${(size / 1000).toFixed(1)}k 字` : `${size} 字`;
+  cell.appendChild(el('div', 'draft-file-size', sizeText));
+  if (opts.onOpen) cell.addEventListener('dblclick', () => opts.onOpen());
+  if (opts.onRemove) {
+    const del = el('button', 'draft-del', '×');
+    del.addEventListener('click', (e) => {
+      e.stopPropagation();
+      opts.onRemove();
+    });
+    cell.appendChild(del);
+  }
+  return cell;
+}
+
 function renderDraft() {
   let bar = dom.composer.querySelector('.draft-bar');
-  if (!state.draftImages.length) {
+  if (!state.draftImages.length && !state.draftFiles.length) {
     if (bar) bar.remove();
     return;
   }
@@ -1517,6 +1683,17 @@ function renderDraft() {
     });
     cell.appendChild(del);
     bar.appendChild(cell);
+  });
+  state.draftFiles.forEach((file, i) => {
+    bar.appendChild(txtChip(file, {
+      title: '双击插入到输入框',
+      onRemove: () => {
+        state.draftFiles.splice(i, 1);
+        renderDraft();
+        updateSendButton();
+      },
+      onOpen: () => insertFileInto(state.draftFiles, i, 'draft'),
+    }));
   });
 }
 
@@ -1693,6 +1870,16 @@ function bindEvents() {
     updateSendButton();
   });
 
+  // 手机端一次粘贴超过 3000 字：转成 txt 附件，而不是把长文塞进输入框
+  dom.input.addEventListener('paste', (e) => {
+    if (document.documentElement.dataset.device !== 'phone') return;
+    const data = e.clipboardData || window.clipboardData;
+    const text = data ? data.getData('text') : '';
+    if (!text || text.length <= PASTE_TXT_MIN) return;
+    e.preventDefault();
+    addPastedTextAsFile(text);
+  });
+
   dom.input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
     e.preventDefault();
@@ -1720,7 +1907,7 @@ function bindEvents() {
     openSheet([
       { label: '拍照', run: () => triggerFile('camera') },
       { label: '相册', run: () => triggerFile('gallery') },
-      { label: '文件（暂不支持）', run: () => toast('当前只支持图片') },
+      { label: '文本文件（.txt）', run: () => dom.txtInput.click() },
     ]);
   });
 
@@ -1776,6 +1963,89 @@ function bindEvents() {
   }, { passive: true });
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+
+  bindDragDrop();
+}
+
+/* 桌面端拖拽上传：图片拖到输入框或就地编辑框即可添加 */
+function bindDragDrop() {
+  const isDesktop = () => document.documentElement.dataset.device === 'desktop';
+  const zoneOf = (node) => {
+    const el = node && (node.nodeType === 1 ? node : node.parentElement);
+    return el && el.closest ? el.closest('.composer-wrap, .msg-editor') : null;
+  };
+
+  const addFiles = async (files, zone) => {
+    const list = Array.from(files);
+    if (!list.length) return;
+    const toEditor = !!zone && zone.classList.contains('msg-editor');
+    const images = list.filter((f) => f.type.startsWith('image/'));
+    const txts = list.filter((f) => /\.txt$/i.test(f.name || '') || f.type === 'text/plain');
+    if (!images.length && !txts.length) {
+      toast('只支持图片和 txt 文本');
+      return;
+    }
+    if (txts.length) await addTxtFiles(txts, toEditor);
+    let added = 0;
+    for (const file of images) {
+      if (file.size > 20 * 1024 * 1024) {
+        toast('图片太大了（超过 20MB）');
+        continue;
+      }
+      try {
+        const img = await readImage(file);
+        if (toEditor && state.editingId) state.editingImages.push(img);
+        else state.draftImages.push(img);
+        added += 1;
+      } catch (err) {
+        toast(err.message || '图片读取失败');
+      }
+    }
+    if (!added) return;
+    if (toEditor && state.editingId) {
+      renderMessages();
+      focusEditor();
+    } else {
+      renderDraft();
+      updateSendButton();
+    }
+    toast(`已添加 ${added} 张图片`);
+  };
+
+  const clearZones = () => {
+    document.querySelectorAll('.drop-active').forEach((n) => n.classList.remove('drop-active'));
+  };
+
+  document.addEventListener('dragover', (e) => {
+    if (!isDesktop()) return;
+    if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
+    // 含文件就全局拦下默认行为，否则浏览器会把拖入的文件当导航直接打开
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    const zone = zoneOf(e.target);
+    clearZones();
+    if (zone) zone.classList.add('drop-active');
+  });
+
+  document.addEventListener('dragleave', (e) => {
+    if (!isDesktop()) return;
+    const zone = zoneOf(e.target);
+    if (zone) zone.classList.remove('drop-active');
+  });
+
+  document.addEventListener('drop', (e) => {
+    if (!isDesktop()) return;
+    const files = e.dataTransfer && e.dataTransfer.files;
+    clearZones();
+    if (!files || !files.length) return;
+    e.preventDefault();
+    const zone = zoneOf(e.target);
+    if (!zone) {
+      toast('把文件拖到输入框上才能添加');
+      return;
+    }
+    addFiles(files, zone);
+  });
 }
 
 let pendingFileTarget = 'gallery';
@@ -1901,6 +2171,12 @@ async function init() {
       if (state.editingId) await addImagesToEdit(files);
       else await addImages(files);
     }
+    e.target.value = '';
+  });
+
+  dom.txtInput.addEventListener('change', async (e) => {
+    const files = e.target.files;
+    if (files && files.length) await addTxtFiles(files, !!state.editingId);
     e.target.value = '';
   });
 

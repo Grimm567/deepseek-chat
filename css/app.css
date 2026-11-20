@@ -651,6 +651,13 @@ html[data-device="desktop"] .msg-actions { display: none; }
   font-size: 13px;
 }
 
+/* 桌面端拖拽：拖到输入区 / 编辑框上时高亮 */
+.composer-wrap.drop-active,
+.msg-editor.drop-active {
+  outline: 2px dashed var(--blue);
+  outline-offset: -2px;
+}
+
 .scroll-bottom {
   position: absolute;
   right: 16px;
@@ -799,6 +806,46 @@ html[data-device="desktop"] .msg-actions { display: none; }
   font-size: 13px;
   line-height: 1;
   cursor: pointer;
+}
+
+/* txt 附件方块：长方形，显示文件名 */
+.draft-file {
+  position: relative;
+  flex-shrink: 0;
+  width: 132px;
+  height: 56px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-soft);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.draft-file:hover { border-color: var(--blue); }
+
+.draft-file-name {
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.draft-file-size {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.msg-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 /* 键盘弹起：去掉安全区留白，让输入框直接贴住键盘 */

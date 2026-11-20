@@ -41,9 +41,17 @@ function buildMessages(history) {
   const out = [];
   for (const msg of history) {
     if (msg.role === 'user') {
+      // txt 附件：文件名打标签 + 全文，拼在用户文字前面
+      let text = msg.content || '';
+      if (msg.files && msg.files.length) {
+        const fileText = msg.files
+          .map((f) => `【文件：${f.name}】\n${f.text || ''}`)
+          .join('\n\n');
+        text = fileText + (text ? '\n\n' + text : '');
+      }
       if (msg.images && msg.images.length) {
         const content = [];
-        if (msg.content) content.push({ type: 'text', text: msg.content });
+        if (text) content.push({ type: 'text', text });
         for (const img of msg.images) {
           const parsed = splitDataUrl(img.dataUrl);
           if (!parsed) continue;
@@ -53,8 +61,8 @@ function buildMessages(history) {
           });
         }
         out.push({ role: 'user', content });
-      } else if (msg.content) {
-        out.push({ role: 'user', content: msg.content });
+      } else if (text) {
+        out.push({ role: 'user', content: text });
       }
     } else if (msg.role === 'assistant') {
       if (!msg.content) continue;
