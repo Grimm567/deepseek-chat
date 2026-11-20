@@ -970,23 +970,37 @@ function openMessageMenu(msg, index, session) {
 
 async function copyText(text) {
   try {
-    await navigator.clipboard.writeText(text);
-    toast('已复制');
-  } catch {
-    const ta = el('textarea');
-    ta.value = text;
-    ta.style.position = 'fixed';
-    ta.style.opacity = '0';
-    document.body.appendChild(ta);
-    ta.select();
-    try {
-      document.execCommand('copy');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
       toast('已复制');
-    } catch {
-      toast('复制失败');
+      return;
     }
-    document.body.removeChild(ta);
+  } catch { /* 用下面的兜底方案 */ }
+
+  // iOS 对隐藏 textarea 的选中不友好，用 1px 可见区域 + readonly 提高成功率
+  const ta = el('textarea');
+  ta.value = text;
+  ta.setAttribute('readonly', '');
+  ta.style.position = 'fixed';
+  ta.style.top = '0';
+  ta.style.left = '0';
+  ta.style.width = '1px';
+  ta.style.height = '1px';
+  ta.style.opacity = '0.01';
+  ta.style.fontSize = '16px';
+  ta.style.zIndex = '-1';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  try { ta.setSelectionRange(0, ta.value.length); } catch { /* 忽略 */ }
+  let ok = false;
+  try {
+    ok = document.execCommand('copy');
+  } catch {
+    ok = false;
   }
+  document.body.removeChild(ta);
+  toast(ok ? '已复制' : '复制失败，请长按选中文本');
 }
 
 /* ------------------------------ 气泡菜单 ------------------------------ */
@@ -2232,6 +2246,50 @@ function bindViewport() {
   }
 }
 
+/* ------------------------------ 版本更新检测 ------------------------------ */
+
+let assetStamp = '';
+let updateNoticeShown = false;
+
+/** 取线上 js/app.js 的版本指纹（Last-Modified + 大小），HEAD 请求不下载正文 */
+async function fetchAssetStamp() {
+  try {
+    const res = await fetch('js/app.js?t=' + Date.now(), { method: 'HEAD', cache: 'no-store' });
+    if (!res.ok) return '';
+    return [
+      res.headers.get('last-modified') || '',
+      res.headers.get('content-length') || '',
+    ].join('|');
+  } catch {
+    return '';
+  }
+}
+
+function showUpdateNotice() {
+  if (updateNoticeShown) return;
+  updateNoticeShown = true;
+  const bar = el('div', 'update-bar');
+  bar.textContent = '发现新版本，点击刷新';
+  bar.addEventListener('click', () => location.reload());
+  document.body.appendChild(bar);
+}
+
+async function checkForUpdate() {
+  const stamp = await fetchAssetStamp();
+  if (!stamp) return;
+  if (!assetStamp) {
+    assetStamp = stamp;
+    return;
+  }
+  if (stamp !== assetStamp) showUpdateNotice();
+}
+
+function bindUpdateCheck() {
+  // 启动时记录当前线上版本，之后每分钟检查一次
+  checkForUpdate();
+  setInterval(checkForUpdate, 60000);
+}
+
 async function init() {
   // 把运行时错误显示出来，方便定位（控制台也能看到）
   window.addEventListener('error', (e) => {
@@ -2283,6 +2341,8 @@ async function init() {
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(() => {});
   }
+
+  bindUpdateCheck();
 
   // 调试开关：开启后会把流式响应里的工具调用、引用等字段打到控制台
   window.__dsDebug = true;

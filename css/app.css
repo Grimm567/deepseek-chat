@@ -658,6 +658,22 @@ html[data-device="desktop"] .msg-actions { display: none; }
   outline-offset: -2px;
 }
 
+/* 发现新版本时的底部提示条 */
+.update-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + var(--safe-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: 90;
+  padding: 9px 18px;
+  border-radius: 999px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 8px 24px rgba(77, 107, 254, .35);
+}
+
 .scroll-bottom {
   position: absolute;
   right: 16px;
