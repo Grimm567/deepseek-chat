@@ -127,6 +127,14 @@ function currentTimeText() {
 function composeSystemPrompt() {
   const parts = ['你是 DeepSeek，由深度求索公司创造的 AI 助手。'];
 
+  // 自动插入的输出约定：只出现在发给模型的系统提示里，不会写进设置里的「系统提示词」输入框，
+  // 并且排在用户自定义提示词之前。
+  parts.push(
+    '回答使用 Markdown。代码、配置、数据、日志、纯文本等需要单独呈现的内容，'
+    + '请用带语言标签的代码块输出（例如 ```python、```json、```txt、```bash），'
+    + '界面会按语言显示并带复制按钮；不要在代码块外用纯文本罗列大段代码。'
+  );
+
   const custom = (state.settings.systemPrompt || '').trim();
   if (custom) parts.push(custom);
 
@@ -141,7 +149,6 @@ function composeSystemPrompt() {
     parts.push('本次对话没有联网工具，遇到需要实时信息的问题，说明你的知识截止时间再作答。');
   }
 
-  parts.push('回答使用 Markdown，代码用带语言标注的代码块。');
   return parts.join('\n\n');
 }
 
@@ -2040,6 +2047,16 @@ function bindEvents() {
   }, { passive: true });
 
   window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', applyTheme);
+
+  // 代码块的一键复制（markdown 渲染出来的「复制」按钮）
+  document.addEventListener('click', (e) => {
+    const btn = e.target && e.target.closest ? e.target.closest('.code-copy') : null;
+    if (!btn) return;
+    const box = btn.closest('.code');
+    const codeEl = box ? box.querySelector('pre code') : null;
+    const text = codeEl ? codeEl.textContent : '';
+    if (text) copyText(text);
+  });
 
   bindDragDrop();
 }
