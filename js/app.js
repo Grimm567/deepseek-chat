@@ -1116,6 +1116,8 @@ async function send() {
   state.draftFiles = [];
   dom.input.value = '';
   autoGrow();
+  // 同步清空输入框上方的附件栏，否则缩略图/文件方块会残留
+  renderDraft();
 
   let session = currentSession();
   if (!session) session = newSession();
