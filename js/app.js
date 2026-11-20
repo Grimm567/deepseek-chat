@@ -1058,7 +1058,7 @@ function bindLongPress(node, handler) {
 /* ------------------------------ 发送 ------------------------------ */
 
 function updateSendButton() {
-  const hasText = dom.input.value.trim().length > 0 || state.draftImages.length > 0;
+  const hasText = dom.input.value.trim().length > 0 || state.draftImages.length > 0 || state.draftFiles.length > 0;
   dom.btnSend.disabled = !hasText;
   dom.btnSend.classList.toggle('disabled', !hasText);
   dom.btnSend.hidden = state.streaming;
@@ -1095,6 +1095,7 @@ function newSession() {
   state.sessions.unshift(session);
   state.currentId = session.id;
   state.draftImages = [];
+  state.draftFiles = [];
   renderAll();
   dom.input.focus();
   return session;
@@ -1102,7 +1103,7 @@ function newSession() {
 
 async function send() {
   const text = dom.input.value.trim();
-  if ((!text && !state.draftImages.length) || state.streaming) return;
+  if ((!text && !state.draftImages.length && !state.draftFiles.length) || state.streaming) return;
   if (!state.settings.apiKey) {
     openSettings();
     toast('先填写 API Key');
