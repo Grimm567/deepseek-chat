@@ -1118,6 +1118,8 @@ async function send() {
   state.draftFiles = [];
   dom.input.value = '';
   autoGrow();
+  inputTrackValue = '';
+  inputTrackAt = performance.now();
   // 同步清空输入框上方的附件栏，否则缩略图/文件方块会残留
   renderDraft();
 
@@ -1622,6 +1624,30 @@ function addPastedTextAsFile(text) {
   toast('文本较长，已转为 txt 附件');
 }
 
+// 输入框内容追踪：一次 input 事件突然多出大量文字（粘贴 / 第三方输入法剪贴板）
+let inputTrackValue = '';
+let inputTrackAt = 0;
+
+/**
+ * 从 prev -> cur 的变化里切出「本次插入的文本」和去掉它之后的原文。
+ * 用公共前后缀做差，兼容光标在中间插入、尾部追加等情形。
+ */
+function splitInsertion(prev, cur) {
+  const max = Math.min(prev.length, cur.length);
+  let start = 0;
+  while (start < max && prev[start] === cur[start]) start += 1;
+  let endPrev = prev.length;
+  let endCur = cur.length;
+  while (endPrev > start && endCur > start && prev[endPrev - 1] === cur[endCur - 1]) {
+    endPrev -= 1;
+    endCur -= 1;
+  }
+  return {
+    inserted: cur.slice(start, endCur),
+    restored: prev.slice(0, start) + prev.slice(endPrev),
+  };
+}
+
 async function addImages(files) {
   const list = Array.from(files).slice(0, 6);
   for (const file of list) {
@@ -1864,15 +1890,43 @@ function bindEvents() {
   dom.btnNew.addEventListener('click', () => {
     state.currentId = null;
     state.draftImages = [];
+    state.draftFiles = [];
     dom.input.value = '';
+    inputTrackValue = '';
+    inputTrackAt = performance.now();
     autoGrow();
+    renderDraft();
     renderAll();
     dom.input.focus();
   });
 
+  inputTrackValue = dom.input.value || '';
+  inputTrackAt = performance.now();
+
   dom.input.addEventListener('input', () => {
     // 开始在日常输入框里打字时，自动退出消息的就地编辑（编辑框复位到修改前）
     if (state.editingId) cancelEdit();
+
+    const now = performance.now();
+    const cur = dom.input.value;
+    const grew = cur.length - inputTrackValue.length;
+    // 手机端：一次 input 事件就多出 3000 字以上。系统粘贴和第三方输入法的剪贴板
+    // 都会表现为「一次事件塞进一大段文字」，比只监听 paste 更可靠。
+    if (document.documentElement.dataset.device === 'phone' && grew >= PASTE_TXT_MIN) {
+      const { inserted, restored } = splitInsertion(inputTrackValue, cur);
+      if (inserted.trim().length >= PASTE_TXT_MIN) {
+        dom.input.value = restored;
+        addPastedTextAsFile(inserted);
+        autoGrow();
+        updateSendButton();
+        inputTrackValue = restored;
+        inputTrackAt = now;
+        return;
+      }
+    }
+
+    inputTrackValue = cur;
+    inputTrackAt = now;
     autoGrow();
     updateSendButton();
   });
