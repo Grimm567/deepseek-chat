@@ -146,6 +146,7 @@ function composeSystemPrompt() {
   if (custom) parts.push(custom);
 
   parts.push(`当前时间：${currentTimeText()}。涉及"今天""最近""现在"这类表述时以此为准。`);
+  parts.push('历史消息开头方括号里是发送时间（月-日 时:分，本地时区），可用于理解「今天」「昨天」这类相对时间。');
 
   if (state.settings.search) {
     parts.push(
@@ -1257,7 +1258,7 @@ async function runCompletion(session, assistantMsg) {
 
   const history = currentPath(session)
     .filter((m) => m !== assistantMsg)
-    .map((m) => ({ role: m.role, content: m.content, images: m.images, files: m.files }));
+    .map((m) => ({ role: m.role, content: m.content, images: m.images, files: m.files, ts: m.ts }));
 
   // 按服务端内容块的下标存放：thinking / search / open / text，渲染时按顺序还原
   const blocks = [];
@@ -1439,7 +1440,7 @@ async function continueReply(session, index) {
   }
 
   const history = session.messages.slice(0, index + 1)
-    .map((m) => ({ role: m.role, content: m.content, images: m.images, files: m.files }));
+    .map((m) => ({ role: m.role, content: m.content, images: m.images, files: m.files, ts: m.ts }));
 
   const baseContent = msg.content;
   const baseReasoning = msg.reasoning || '';

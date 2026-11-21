@@ -36,11 +36,22 @@ function splitDataUrl(dataUrl) {
   return { mediaType: match[1] || 'image/jpeg', base64: match[3] || '' };
 }
 
+/** 消息时间戳 -> "MM-DD HH:mm"（本地时区） */
+function formatStamp(ms) {
+  const d = new Date(ms);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 /** 本地消息 -> Messages API 的 messages */
 function buildMessages(history) {
   const out = [];
   for (const msg of history) {
     if (msg.role === 'user') {
+      // 时间前缀：让模型知道这条消息是什么时候发的（能理解"今天/昨天"这类相对时间）
+      const stamp = msg.ts ? formatStamp(msg.ts) : '';
+      const prefix = stamp ? `[${stamp}] ` : '';
       // txt 附件：文件名打标签 + 全文，拼在用户文字前面
       let text = msg.content || '';
       if (msg.files && msg.files.length) {
@@ -49,6 +60,7 @@ function buildMessages(history) {
           .join('\n\n');
         text = fileText + (text ? '\n\n' + text : '');
       }
+      text = prefix + text;
       if (msg.images && msg.images.length) {
         const content = [];
         if (text) content.push({ type: 'text', text });
