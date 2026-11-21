@@ -1188,17 +1188,23 @@ function autoGrow() {
   dom.input.style.height = Math.min(dom.input.scrollHeight, 140) + 'px';
 }
 
-// 自动跟随状态：用户一旦上滑查看历史就立刻停止跟随，滑回底部再恢复。
-// 否则流式输出每帧都把用户「拽」回底部，前面的内容根本看不了。
+// 自动跟随状态：用户主动上滑看历史就立刻停止，滑回底部恢复。
+// 判定必须靠「手指/滚轮方向」加「程序滚动冷却」，不能只看 scrollTop 变小 ——
+// 流式重渲染会让内容高度抖动、scrollTop 被浏览器 clamp，那样会被误判成上滑而彻底停摆。
 let stickToBottom = true;
 let lastScrollTop = 0;
+let lastTouchY = 0;
+let lastProgrammaticAt = 0;
 
 function onChatScroll() {
   const box = dom.chat;
   const top = box.scrollTop;
   const distance = box.scrollHeight - top - box.clientHeight;
-  if (distance <= 12) stickToBottom = true;                // 已经滑到底：恢复自动跟随
-  else if (top < lastScrollTop - 2) stickToBottom = false; // 向上滑了：立刻停止跟随
+  if (distance <= 12) {
+    stickToBottom = true; // 已经滑到底部：恢复自动跟随
+  } else if (performance.now() - lastProgrammaticAt > 120 && top < lastScrollTop - 20) {
+    stickToBottom = false; // 兜底：明显上滑（例如拖动滚动条），程序滚动后的 120ms 内不判
+  }
   lastScrollTop = top;
   updateScrollButton();
 }
@@ -1211,6 +1217,7 @@ function scrollToBottom(force) {
   const box = dom.chat;
   box.scrollTop = box.scrollHeight;
   lastScrollTop = box.scrollTop;
+  lastProgrammaticAt = performance.now();
 }
 
 function updateScrollButton() {
@@ -2185,6 +2192,21 @@ function bindEvents() {
 
   dom.btnScrollBottom.addEventListener('click', () => scrollToBottom(true));
   dom.chat.addEventListener('scroll', onChatScroll, { passive: true });
+
+  // 手指向下拖 = 内容向上滚 = 用户在看历史：立刻停掉自动跟随
+  dom.chat.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 1) lastTouchY = e.touches[0].clientY;
+  }, { passive: true });
+  dom.chat.addEventListener('touchmove', (e) => {
+    if (e.touches.length !== 1) return;
+    const y = e.touches[0].clientY;
+    if (y - lastTouchY > 4) stickToBottom = false;
+    lastTouchY = y;
+  }, { passive: true });
+  // 桌面端滚轮向上
+  dom.chat.addEventListener('wheel', (e) => {
+    if (e.deltaY < -1) stickToBottom = false;
+  }, { passive: true });
 
   // 点击输入框（含发送按钮那一排）以外的区域时自动收起键盘
   const inComposer = (node) => {
