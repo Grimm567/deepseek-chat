@@ -132,9 +132,14 @@ function composeSystemPrompt() {
   // 自动插入的输出约定：只出现在发给模型的系统提示里，不会写进设置里的「系统提示词」输入框，
   // 并且排在用户自定义提示词之前。
   parts.push(
-    '回答使用 Markdown。代码、配置、数据、日志、纯文本等需要单独呈现的内容，'
-    + '请用带语言标签的代码块输出（例如 ```python、```json、```txt、```bash），'
-    + '界面会按语言显示并带复制按钮；不要在代码块外用纯文本罗列大段代码。'
+    '回答使用 Markdown。界面支持以下语法，请按需使用：\n'
+    + '- 代码、配置、数据、日志、纯文本等需要单独呈现的内容，用带语言标签的代码块输出'
+    + '（例如 ```python、```json、```txt、```bash），界面会按语言显示并带一键复制；\n'
+    + '- 待办/步骤清单用任务列表：- [ ] 未完成、- [x] 已完成；\n'
+    + '- 强调分三档：**普通加粗**、***小标题***、****大标题****；\n'
+    + '- 数学公式用 $...$（行内）或 $$...$$（块级，独立成段）；\n'
+    + '- 脚注用 [^1] 引用，并在文末用 [^1]: 内容 定义；\n'
+    + '- 裸链接和邮箱会自动识别，不必额外加格式。'
   );
 
   const custom = (state.settings.systemPrompt || '').trim();
@@ -2098,6 +2103,29 @@ function bindEvents() {
     const codeEl = box ? box.querySelector('pre code') : null;
     const text = codeEl ? codeEl.textContent : '';
     if (text) copyText(text);
+  });
+
+  // 任务列表：点击切换完成状态（直接改写消息内容里的 [ ] / [x]）
+  document.addEventListener('click', (e) => {
+    const item = e.target && e.target.closest ? e.target.closest('.task-item') : null;
+    if (!item) return;
+    const msgEl = item.closest('.msg');
+    const session = currentSession();
+    if (!msgEl || !session) return;
+    const msg = session.messages.find((m) => m.id === msgEl.dataset.id);
+    if (!msg || typeof msg.content !== 'string') return;
+    const index = Number(item.dataset.taskIndex);
+    if (!Number.isFinite(index)) return;
+    let seen = 0;
+    let changed = false;
+    msg.content = msg.content.replace(/^(\s*[-*+]\s+\[)([ xX])(\])/gm, (m, pre, mark, end) => {
+      if (seen++ !== index) return m;
+      changed = true;
+      return pre + (mark.toLowerCase() === 'x' ? ' ' : 'x') + end;
+    });
+    if (!changed) return;
+    persist(session);
+    renderMessages();
   });
 
   bindDragDrop();

@@ -174,6 +174,24 @@ export function highlightCode(code, lang) {
 
 /* ------------------------------- 行内语法 ------------------------------- */
 
+/** 用 KaTeX 渲染公式；未加载时降级为等宽文本 */
+function mathHtml(tex, display) {
+  const katex = typeof window !== 'undefined' ? window.katex : null;
+  const raw = String(tex || '').trim();
+  if (!katex || typeof katex.renderToString !== 'function') {
+    return `<code class="math-raw">${escapeHtml(raw)}</code>`;
+  }
+  try {
+    return katex.renderToString(raw, {
+      displayMode: !!display,
+      throwOnError: false,
+      strict: 'ignore',
+    });
+  } catch {
+    return `<code class="math-raw">${escapeHtml(raw)}</code>`;
+  }
+}
+
 function inline(text, stash) {
   const token = (html) => {
     stash.push(html);
@@ -184,16 +202,34 @@ function inline(text, stash) {
 
   // 行内代码优先，避免内部内容再被解释
   s = s.replace(/`([^`\n]+)`/g, (_, code) => token(`<code class="inline-code">${code}</code>`));
+
+  // 行内公式 $...$（\$ 转义不处理）
+  s = s.replace(/(^|[^\\])\$([^$\n]+?)\$/g, (m, pre, tex) => `${pre}${token(mathHtml(tex, false))}`);
+
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,
     (_, alt, url) => token(`<img class="md-img" src="${safeUrl(url)}" alt="${alt}" loading="lazy">`));
   s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g,
     (_, label, url) => token(`<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`));
 
-  s = s.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
+  // 脚注引用 [^1]
+  s = s.replace(/\[\^([^\]\s]+)\]/g, (_, id) =>
+    token(`<sup class="fn-ref"><a href="#fn-${escapeHtml(id)}" id="fnref-${escapeHtml(id)}">[${escapeHtml(id)}]</a></sup>`)
+  );
+
+  // 加粗分档：****大标题**** / ***小标题*** / **普通加粗**
+  s = s.replace(/\*{4}([^*\n]+)\*{4}/g, (_, t) => `<strong class="tier-lg">${t}</strong>`);
+  s = s.replace(/\*{3}([^*\n]+)\*{3}/g, (_, t) => `<strong class="tier-md">${t}</strong>`);
+  s = s.replace(/\*\*([^*\n]+)\*\*/g, (_, t) => `<strong>${t}</strong>`);
   s = s.replace(/__([^_\n]+)__/g, '<strong>$1</strong>');
   s = s.replace(/~~([^~\n]+)~~/g, '<del>$1</del>');
   s = s.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
   s = s.replace(/(^|[^_\w])_([^_\n]+)_(?!_)/g, '$1<em>$2</em>');
+
+  // 裸链接 / 邮箱自动识别
+  s = s.replace(/(^|[\s(（])((?:https?:\/\/)[^\s<>()"'，。；、！？（）]+)/g,
+    (_, pre, url) => `${pre}<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+  s = s.replace(/(^|[\s(（])([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})/g,
+    (_, pre, mail) => `${pre}<a href="mailto:${mail}">${mail}</a>`);
 
   for (let n = 0; n < 3; n++) {
     const before = s;
@@ -253,9 +289,23 @@ export function renderMarkdown(src) {
     return `\u0002${stash.length - 1}\u0002\n`;
   });
 
+  // 收集脚注定义 [^id]: 内容，并从正文移除
+  const footnotes = [];
+  text = text.replace(/^\s*\[\^([^\]\s]+)\]:\s*(.*)$/gm, (_, id, content) => {
+    footnotes.push({ id, content });
+    return '';
+  });
+
+  // 块级公式 $$...$$
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
+    stash.push(mathHtml(tex, true));
+    return `\u0002${stash.length - 1}\u0002\n`;
+  });
+
   const lines = text.split('\n');
   const out = [];
   let i = 0;
+  let taskIndex = 0;
 
   const paragraph = (buf) => {
     if (!buf.length) return;
@@ -293,10 +343,23 @@ export function renderMarkdown(src) {
     if (/^[-*+]\s+/.test(trimmed)) {
       const items = [];
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*[-*+]\s+/, ''));
+        const raw = lines[i].replace(/^\s*[-*+]\s+/, '');
+        const task = /^\[([ xX])\]\s*(.*)$/.exec(raw);
+        if (task) {
+          items.push({ task: true, checked: task[1].toLowerCase() === 'x', text: task[2], index: taskIndex++ });
+        } else {
+          items.push({ task: false, text: raw });
+        }
         i++;
       }
-      out.push(`<ul>${items.map((t) => `<li>${inline(escapeHtml(t), stash)}</li>`).join('')}</ul>`);
+      const hasTask = items.some((it) => it.task);
+      if (hasTask) {
+        out.push(`<ul class="task-list">${items.map((it) => (it.task
+          ? `<li class="task-item${it.checked ? ' done' : ''}" data-task-index="${it.index}"><span class="task-box${it.checked ? ' checked' : ''}"></span><span class="task-text">${inline(escapeHtml(it.text), stash)}</span></li>`
+          : `<li>${inline(escapeHtml(it.text), stash)}</li>`)).join('')}</ul>`);
+      } else {
+        out.push(`<ul>${items.map((it) => `<li>${inline(escapeHtml(it.text), stash)}</li>`).join('')}</ul>`);
+      }
       continue;
     }
 
@@ -330,6 +393,11 @@ export function renderMarkdown(src) {
       i++;
     }
     paragraph(buf);
+  }
+
+  if (footnotes.length) {
+    out.push(`<section class="footnotes"><ol>${footnotes.map((f) =>
+      `<li id="fn-${escapeHtml(f.id)}">${inline(escapeHtml(f.content), stash)}</li>`).join('')}</ol></section>`);
   }
 
   return out.join('\n').replace(/\u0002(\d+)\u0002/g, (_, idx) => stash[Number(idx)] ?? '');

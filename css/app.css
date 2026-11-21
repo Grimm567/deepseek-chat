@@ -1207,6 +1207,52 @@ html.kb-open .chat {
   white-space: pre;
 }
 
+/* 加粗三档：****大标题**** / ***小标题*** / **普通加粗** */
+.md .tier-lg { font-size: 1.35em; line-height: 1.35; }
+.md .tier-md { font-size: 1.15em; }
+
+/* 任务列表 */
+.md .task-list { list-style: none; padding-left: 2px; }
+.md .task-item { display: flex; align-items: flex-start; gap: 8px; }
+.md .task-item + .task-item { margin-top: 4px; }
+.md .task-box {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-top: 4px;
+  border: 1.5px solid var(--text-3);
+  border-radius: 5px;
+  cursor: pointer;
+  position: relative;
+}
+.md .task-box.checked { background: var(--blue); border-color: var(--blue); }
+.md .task-box.checked::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+.md .task-item.done .task-text { color: var(--text-3); text-decoration: line-through; }
+
+/* 脚注 */
+.md .fn-ref { font-size: .75em; vertical-align: super; }
+.md .footnotes {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-2);
+}
+.md .footnotes ol { margin: 6px 0 0; padding-left: 20px; }
+
+/* KaTeX 未加载时的降级显示 */
+.md .math-raw { color: var(--text-2); }
+
 .tk-k { color: #7c4dff; }
 .tk-s { color: #2e7d32; }
 .tk-c { color: var(--text-3); font-style: italic; }
