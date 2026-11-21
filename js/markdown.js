@@ -203,8 +203,9 @@ function inline(text, stash) {
   // 行内代码优先，避免内部内容再被解释
   s = s.replace(/`([^`\n]+)`/g, (_, code) => token(`<code class="inline-code">${code}</code>`));
 
-  // 行内公式 $...$（\$ 转义不处理）
+  // 行内公式 $...$ 或 \(...\)
   s = s.replace(/(^|[^\\])\$([^$\n]+?)\$/g, (m, pre, tex) => `${pre}${token(mathHtml(tex, false))}`);
+  s = s.replace(/\\\(([^\n]+?)\\\)/g, (m, tex) => token(mathHtml(tex, false)));
 
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,
     (_, alt, url) => token(`<img class="md-img" src="${safeUrl(url)}" alt="${alt}" loading="lazy">`));
@@ -289,6 +290,10 @@ export function renderMarkdown(src) {
     return `\u0002${stash.length - 1}\u0002\n`;
   });
 
+  // 有的接口会把反斜杠再转义一层，出现 \\( 这种写法，先归一回单反斜杠，
+  // 否则公式定界符认不出来（代码块已抽走，不会误改代码里的内容）。
+  text = text.replace(/\\\\([[\]()])/g, '\\$1');
+
   // 收集脚注定义 [^id]: 内容，并从正文移除
   const footnotes = [];
   text = text.replace(/^\s*\[\^([^\]\s]+)\]:\s*(.*)$/gm, (_, id, content) => {
@@ -296,11 +301,13 @@ export function renderMarkdown(src) {
     return '';
   });
 
-  // 块级公式 $$...$$
-  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => {
+  // 块级公式 $$...$$ 与 \[...\]（后者是 DeepSeek 官方模型更常用的写法）
+  const blockMath = (tex) => {
     stash.push(mathHtml(tex, true));
     return `\u0002${stash.length - 1}\u0002\n`;
-  });
+  };
+  text = text.replace(/\$\$([\s\S]+?)\$\$/g, (_, tex) => blockMath(tex));
+  text = text.replace(/\\\[([\s\S]+?)\\\]/g, (_, tex) => blockMath(tex));
 
   const lines = text.split('\n');
   const out = [];
