@@ -332,6 +332,8 @@ body { overflow: hidden; }
   -webkit-overflow-scrolling: touch;
   padding: 8px 16px 16px;
   scroll-behavior: smooth;
+  /* 回到底部按钮相对聊天区定位，始终贴在输入框上方，不被键盘/多行输入框挡住 */
+  position: relative;
 }
 
 /* ------------------------------ 欢迎页 ------------------------------ */
@@ -701,9 +703,9 @@ html[data-device="desktop"] .msg-actions { display: none; }
 .scroll-bottom {
   position: absolute;
   right: 16px;
-  bottom: 118px;
-  width: 36px;
-  height: 36px;
+  bottom: 16px;
+  width: 42px;
+  height: 42px;
   display: grid;
   place-items: center;
   border: 1px solid var(--line);
@@ -713,6 +715,8 @@ html[data-device="desktop"] .msg-actions { display: none; }
   box-shadow: 0 4px 14px rgba(0, 0, 0, .1);
   cursor: pointer;
 }
+
+.scroll-bottom svg { width: 20px; height: 20px; }
 
 /* ------------------------------ 输入区 ------------------------------ */
 
@@ -1237,6 +1241,14 @@ html[data-theme='dark'] .tk-n { color: #ffb74d; }
   #btnNew { display: none; }
   .scrim { display: none; }
   .main { max-width: 860px; margin: 0 auto; }
+  /* 桌面端「回到底部」按钮放大 */
+  .scroll-bottom {
+    right: 24px;
+    bottom: 20px;
+    width: 48px;
+    height: 48px;
+  }
+  .scroll-bottom svg { width: 22px; height: 22px; }
   .modal { align-items: center; }
   .modal-card { border-radius: 20px; }
   .sheet { align-items: center; justify-content: center; }
