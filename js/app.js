@@ -1188,10 +1188,29 @@ function autoGrow() {
   dom.input.style.height = Math.min(dom.input.scrollHeight, 140) + 'px';
 }
 
-function scrollToBottom(force) {
+// 自动跟随状态：用户一旦上滑查看历史就立刻停止跟随，滑回底部再恢复。
+// 否则流式输出每帧都把用户「拽」回底部，前面的内容根本看不了。
+let stickToBottom = true;
+let lastScrollTop = 0;
+
+function onChatScroll() {
   const box = dom.chat;
-  const nearBottom = box.scrollHeight - box.scrollTop - box.clientHeight < 120;
-  if (force || nearBottom) box.scrollTop = box.scrollHeight;
+  const top = box.scrollTop;
+  const distance = box.scrollHeight - top - box.clientHeight;
+  if (distance <= 12) stickToBottom = true;                // 已经滑到底：恢复自动跟随
+  else if (top < lastScrollTop - 2) stickToBottom = false; // 向上滑了：立刻停止跟随
+  lastScrollTop = top;
+  updateScrollButton();
+}
+
+function scrollToBottom(force) {
+  if (force) stickToBottom = true;
+  // 关掉「自动滚动」设置时，除非明确要求，否则一概不自动动
+  if (state.settings.autoScroll === false && !force) return;
+  if (!stickToBottom) return;
+  const box = dom.chat;
+  box.scrollTop = box.scrollHeight;
+  lastScrollTop = box.scrollTop;
 }
 
 function updateScrollButton() {
@@ -1453,7 +1472,7 @@ async function runCompletion(session, assistantMsg) {
     renderMessages();
     renderSidebar();
     updateSendButton();
-    if (state.settings.autoScroll !== false) scrollToBottom(true);
+    if (state.settings.autoScroll !== false) scrollToBottom();
   }
 }
 
@@ -1584,7 +1603,7 @@ async function continueReply(session, index) {
     persist(session);
     renderMessages();
     updateSendButton();
-    if (state.settings.autoScroll !== false) scrollToBottom(true);
+    if (state.settings.autoScroll !== false) scrollToBottom();
   }
 }
 
@@ -2165,7 +2184,7 @@ function bindEvents() {
   });
 
   dom.btnScrollBottom.addEventListener('click', () => scrollToBottom(true));
-  dom.chat.addEventListener('scroll', updateScrollButton, { passive: true });
+  dom.chat.addEventListener('scroll', onChatScroll, { passive: true });
 
   // 点击输入框（含发送按钮那一排）以外的区域时自动收起键盘
   const inComposer = (node) => {
@@ -2347,7 +2366,7 @@ function bindSwipeDrawer() {
   if (document.documentElement.dataset.device !== 'phone') return;
 
   const root = document.documentElement;
-  const EDGE = 48; // 收起状态只从左边缘起手，避免和滚动、长按抢手势
+  const DEADZONE = 14; // 横向移动超过它才开始位移，避免轻微斜滑就拖动
   const drawerWidth = () => Math.min(window.innerWidth * 0.82, 320);
 
   let startX = 0;
@@ -2385,14 +2404,15 @@ function bindSwipeDrawer() {
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
     root.style.setProperty('--drawer-p', String(progress));
     root.classList.remove('drawer-dragging');
-    // 判据用「朝目标方向走了多少」而不是绝对进度：拖过中点、或者甩得够快就切状态。
-    // 打开与关闭因此是对称的，不会出现“关闭要拖三分之二屏才动”的钝感。
+    // toward = 朝「翻转当前状态」的方向走了多少。跨过中点（或被甩动）就翻转状态，
+    // 否则回到原状态。翻转结果必须按 baseP 判断 —— 否则关闭手势会被当成“应该打开”，
+    // 侧栏就再也滑不回去了。
     const toward = baseP > 0.5 ? 1 - progress : progress;
     const elapsed = Math.max(1, Date.now() - startTime);
     const speed = Math.abs(progress - baseP) / elapsed; // 进度 / 毫秒
-    const flung = elapsed < 320 && speed > 0.0009;
-    const open = commit ? (toward > 0.5 || (flung && toward > 0.08)) : (baseP > 0.5);
-    const target = open ? 1 : 0;
+    const flung = elapsed < 320 && speed > 0.0012;
+    const switched = commit && (toward > 0.5 || (flung && toward > 0.1));
+    const target = switched ? (baseP > 0.5 ? 0 : 1) : (baseP > 0.5 ? 1 : 0);
     // 剩余距离越短动画越快：只剩一点点还要等满 0.26s 就是最明显的顿挫来源
     const remaining = Math.abs(target - progress);
     const ms = Math.min(300, Math.max(110, Math.round(remaining * 340)));
@@ -2407,30 +2427,28 @@ function bindSwipeDrawer() {
     const dx = t.clientX - startX;
     const dy = t.clientY - startY;
     if (!dragging) {
-      if (Math.abs(dx) < 6) return;
-      // 竖直方向占优：判定为页面滚动，交还给浏览器
-      if (Math.abs(dx) < Math.abs(dy)) { finish(false); return; }
+      if (Math.abs(dx) < DEADZONE) return; // 死区：横向走够才判定，避免轻微斜滑就拖动
+      // 横向必须明显压过纵向（斜着滑要交还给页面滚动）
+      if (Math.abs(dx) < Math.abs(dy) * 1.3) { finish(false); return; }
       const wantSign = baseP > 0.5 ? -1 : 1;
       if (Math.sign(dx) !== wantSign) { finish(false); return; }
       dragging = true;
       root.classList.add('drawer-dragging');
     }
     if (e.cancelable) e.preventDefault();
-    queueProgress(baseP + dx / drawerWidth());
+    // 扣掉死区再跟手：越过死区那一瞬间不会突然跳一段
+    const moved = Math.max(0, Math.abs(dx) - DEADZONE) * Math.sign(dx);
+    queueProgress(baseP + moved / drawerWidth());
   }
 
   document.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     const node = t.target;
-    // 横向可滚动区域、输入框、侧栏内部都不接管
-    if (node && node.closest && node.closest('.code pre, .table-wrap, textarea, input, .sidebar')) return;
-    if (isOpen()) {
-      baseP = 1;
-    } else {
-      if (t.clientX > EDGE) return;
-      baseP = 0;
-    }
+    // 排除：横向可滚动区域、输入框、侧栏内部、图片查看器与各种弹层
+    if (node && node.closest && node.closest('.code pre, .table-wrap, textarea, input, .sidebar, .img-viewer, .sheet, .modal')) return;
+    // 整屏都能起手；是否真的进入抽屉手势由 onMove 的方向与距离判定决定
+    baseP = isOpen() ? 1 : 0;
     startX = t.clientX;
     startY = t.clientY;
     progress = baseP;
