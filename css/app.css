@@ -1253,6 +1253,23 @@ html.kb-open .chat {
 /* KaTeX 未加载时的降级显示 */
 .md .math-raw { color: var(--text-2); }
 
+/* iOS：长按消息时禁止系统文本选择/长按菜单，改由 App 自己的长按菜单处理。
+   只作用于消息内容，输入框和设置面板仍可正常选中复制。 */
+@media (hover: none) {
+  .msg .md,
+  .msg .bubble-text,
+  .msg .think-body,
+  .msg .code,
+  .msg .code code,
+  .msg img,
+  .sheet,
+  .sheet-item {
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    user-select: none;
+  }
+}
+
 .tk-k { color: #7c4dff; }
 .tk-s { color: #2e7d32; }
 .tk-c { color: var(--text-3); font-style: italic; }

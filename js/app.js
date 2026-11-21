@@ -682,9 +682,15 @@ function messageNode(msg, index, session, variantInfo) {
   wrap.appendChild(el('div', 'hover-zone'));
   wrap.appendChild(hoverActions(msg, index, session, content));
 
-  bindLongPress(wrap, () => openMessageMenu(msg, index, session));
+  // 生成中的回复不弹气泡菜单：流式期间节点每帧重建，长按 + iOS 手势会打架，
+  // 菜单可能关不掉；删除 pending 消息也会让流式状态错乱。
+  bindLongPress(wrap, () => {
+    if (msg.pending) return;
+    openMessageMenu(msg, index, session);
+  });
   wrap.addEventListener('contextmenu', (e) => {
     e.preventDefault();
+    if (msg.pending) return;
     openMessageMenu(msg, index, session);
   });
   return wrap;
@@ -961,6 +967,10 @@ function openMessageMenu(msg, index, session) {
     icon: 'trash',
     danger: true,
     run: async () => {
+      // 正在生成的回复：先把流式中止，避免删除后流式回调继续改状态
+      if (msg.pending && state.controller) {
+        try { state.controller.abort(); } catch { /* 忽略 */ }
+      }
       // 树形结构：连带删掉它的所有后代，别把别的分支也带走
       const doomed = new Set([msg.id]);
       let grew = true;
@@ -1019,6 +1029,10 @@ async function copyText(text) {
 
 /* ------------------------------ 气泡菜单 ------------------------------ */
 
+// 菜单刚弹出的一小段时间内不响应点击：长按触发时手指还没抬起，
+// 抬起瞬间可能正好落在「复制」等按钮上造成误触。
+let sheetArmedAt = 0;
+
 function openSheet(items) {
   const sheet = document.getElementById('sheet');
   const panel = document.getElementById('sheetPanel');
@@ -1030,14 +1044,19 @@ function openSheet(items) {
   for (const item of items) {
     const btn = el('button', 'sheet-item' + (item.danger ? ' danger' : ''), item.label);
     btn.addEventListener('click', () => {
+      if (performance.now() < sheetArmedAt) return;
       closeSheet();
       item.run();
     });
     panel.appendChild(btn);
   }
   const cancel = el('button', 'sheet-item cancel', '取消');
-  cancel.addEventListener('click', closeSheet);
+  cancel.addEventListener('click', () => {
+    if (performance.now() < sheetArmedAt) return;
+    closeSheet();
+  });
   panel.appendChild(cancel);
+  sheetArmedAt = performance.now() + 350;
   sheet.hidden = false;
   sheet.style.display = 'flex';
   sheet.style.opacity = '1';
@@ -2033,6 +2052,13 @@ function bindEvents() {
   });
 
   dom.btnSettings.addEventListener('click', openSettings);
+
+  // 点气泡菜单的遮罩也能关闭（长按菜单关不掉时的兜底入口）
+  if (dom.sheet) {
+    dom.sheet.addEventListener('click', (e) => {
+      if (e.target === dom.sheet) closeSheet();
+    });
+  }
   $('btnSettingsTop').addEventListener('click', openSettings);
   $('setTemp').addEventListener('input', (e) => {
     $('tempValue').textContent = Number(e.target.value).toFixed(1);
