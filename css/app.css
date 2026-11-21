@@ -73,9 +73,11 @@ body { overflow: hidden; }
   z-index: 40;
   display: flex;
   flex-direction: column;
-  /* --drawer-p 由滑动跟手写入：0 = 完全收起，1 = 完全展开 */
-  transform: translateX(calc((var(--drawer-p, 0) - 1) * 102%));
-  transition: transform .26s cubic-bezier(.32, .72, 0, 1);
+  /* --drawer-p 由滑动跟手写入：0 = 完全收起，1 = 完全展开。
+     用 100%（而不是 102%）是为了让位移与手指严格同比：侧栏右边缘始终贴着主内容左边缘，
+     不会在拖动过程中出现 2% 的错位漂移。 */
+  transform: translateX(calc((var(--drawer-p, 0) - 1) * 100%));
+  transition: transform var(--drawer-ms, .26s) cubic-bezier(.32, .72, 0, 1);
   border-right: 1px solid var(--line);
   padding-top: env(safe-area-inset-top, 0px);
 }
@@ -278,7 +280,7 @@ body { overflow: hidden; }
   z-index: 35;
   opacity: var(--drawer-p, 0);
   pointer-events: none;
-  transition: opacity .26s;
+  transition: opacity var(--drawer-ms, .26s);
 }
 
 .scrim.open { opacity: 1; pointer-events: auto; }
@@ -291,7 +293,7 @@ html.drawer-dragging .main { transition: none; }
 /* 从「已打开」状态往回拖时，.sidebar.open 的 translateX(0) 会压住变量公式，
    这里用更高特异性把它还原成跟手位移 */
 html.drawer-dragging .sidebar {
-  transform: translateX(calc((var(--drawer-p, 0) - 1) * 102%));
+  transform: translateX(calc((var(--drawer-p, 0) - 1) * 100%));
 }
 
 /* ------------------------------ 主区 ------------------------------ */
@@ -305,7 +307,7 @@ html.drawer-dragging .sidebar {
   padding-top: env(safe-area-inset-top, 0px);
   /* 会话栏抽屉跟手：主内容与手指等距右移，和侧栏宽度一致 */
   transform: translateX(calc(var(--drawer-p, 0) * min(82vw, 320px)));
-  transition: transform .26s cubic-bezier(.32, .72, 0, 1);
+  transition: transform var(--drawer-ms, .26s) cubic-bezier(.32, .72, 0, 1);
 }
 
 .topbar {
@@ -1317,33 +1319,9 @@ html.kb-open .chat {
 .md .tier-lg { font-size: 1.35em; line-height: 1.35; }
 .md .tier-md { font-size: 1.15em; }
 
-/* 任务列表 */
-.md .task-list { list-style: none; padding-left: 2px; }
-.md .task-item { display: flex; align-items: flex-start; gap: 8px; }
-.md .task-item + .task-item { margin-top: 4px; }
-.md .task-box {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  margin-top: 4px;
-  border: 1.5px solid var(--text-3);
-  border-radius: 5px;
-  cursor: pointer;
-  position: relative;
-}
-.md .task-box.checked { background: var(--blue); border-color: var(--blue); }
-.md .task-box.checked::after {
-  content: '';
-  position: absolute;
-  left: 5px;
-  top: 2px;
-  width: 4px;
-  height: 8px;
-  border: solid #fff;
-  border-width: 0 2px 2px 0;
-  transform: rotate(45deg);
-}
-.md .task-item.done .task-text { color: var(--text-3); text-decoration: line-through; }
+/* 任务列表语法（- [ ] / - [x]）：按普通列表渲染，已完成项只做淡化划线，
+   不放可点击的勾选框 —— 对话场景里勾选没有任何实际对象可对应 */
+.md .task-done { color: var(--text-3); text-decoration: line-through; }
 
 /* 脚注 */
 .md .fn-ref { font-size: .75em; vertical-align: super; }

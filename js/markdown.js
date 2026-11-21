@@ -338,7 +338,6 @@ export function renderMarkdown(src) {
   const lines = text.split('\n');
   const out = [];
   let i = 0;
-  let taskIndex = 0;
 
   const paragraph = (buf) => {
     if (!buf.length) return;
@@ -377,22 +376,16 @@ export function renderMarkdown(src) {
       const items = [];
       while (i < lines.length && /^\s*[-*+]\s+/.test(lines[i])) {
         const raw = lines[i].replace(/^\s*[-*+]\s+/, '');
+        // 模型常把普通列表也写成任务列表语法（- [ ] / - [x]）。对话里没有「勾选待办」
+        // 这件事，所以统一按普通列表渲染；[x] 只保留“已完成”的淡化划线。
         const task = /^\[([ xX])\]\s*(.*)$/.exec(raw);
-        if (task) {
-          items.push({ task: true, checked: task[1].toLowerCase() === 'x', text: task[2], index: taskIndex++ });
-        } else {
-          items.push({ task: false, text: raw });
-        }
+        items.push(task
+          ? { done: task[1].toLowerCase() === 'x', text: task[2] }
+          : { done: false, text: raw });
         i++;
       }
-      const hasTask = items.some((it) => it.task);
-      if (hasTask) {
-        out.push(`<ul class="task-list">${items.map((it) => (it.task
-          ? `<li class="task-item${it.checked ? ' done' : ''}" data-task-index="${it.index}"><span class="task-box${it.checked ? ' checked' : ''}"></span><span class="task-text">${inline(escapeHtml(it.text), stash)}</span></li>`
-          : `<li>${inline(escapeHtml(it.text), stash)}</li>`)).join('')}</ul>`);
-      } else {
-        out.push(`<ul>${items.map((it) => `<li>${inline(escapeHtml(it.text), stash)}</li>`).join('')}</ul>`);
-      }
+      out.push(`<ul>${items.map((it) =>
+        `<li${it.done ? ' class="task-done"' : ''}>${inline(escapeHtml(it.text), stash)}</li>`).join('')}</ul>`);
       continue;
     }
 

@@ -135,7 +135,6 @@ function composeSystemPrompt() {
     '回答使用 Markdown。界面支持以下语法，请按需使用：\n'
     + '- 代码、配置、数据、日志、纯文本等需要单独呈现的内容，用带语言标签的代码块输出'
     + '（例如 ```python、```json、```txt、```bash），界面会按语言显示并带一键复制；\n'
-    + '- 待办/步骤清单用任务列表：- [ ] 未完成、- [x] 已完成；\n'
     + '- 强调分三档：**普通加粗**、***小标题***、****大标题****；\n'
     + '- 数学公式用 $...$（行内）或 $$...$$（块级，独立成段）；\n'
     + '- 脚注用 [^1] 引用，并在文末用 [^1]: 内容 定义；\n'
@@ -2191,29 +2190,6 @@ function bindEvents() {
     if (text) copyText(text);
   });
 
-  // 任务列表：点击切换完成状态（直接改写消息内容里的 [ ] / [x]）
-  document.addEventListener('click', (e) => {
-    const item = e.target && e.target.closest ? e.target.closest('.task-item') : null;
-    if (!item) return;
-    const msgEl = item.closest('.msg');
-    const session = currentSession();
-    if (!msgEl || !session) return;
-    const msg = session.messages.find((m) => m.id === msgEl.dataset.id);
-    if (!msg || typeof msg.content !== 'string') return;
-    const index = Number(item.dataset.taskIndex);
-    if (!Number.isFinite(index)) return;
-    let seen = 0;
-    let changed = false;
-    msg.content = msg.content.replace(/^(\s*[-*+]\s+\[)([ xX])(\])/gm, (m, pre, mark, end) => {
-      if (seen++ !== index) return m;
-      changed = true;
-      return pre + (mark.toLowerCase() === 'x' ? ' ' : 'x') + end;
-    });
-    if (!changed) return;
-    persist(session);
-    renderMessages();
-  });
-
   // 点击附件缩略图 / 消息里的图片：放大查看（同一组可左右切换）
   document.addEventListener('click', (e) => {
     const img = e.target instanceof HTMLImageElement ? e.target : null;
@@ -2342,7 +2318,14 @@ function triggerFile(target) {
   dom.imageInput.click();
 }
 
-function openSidebar() {
+/** 抽屉动画时长：松手时按剩余距离给，距离短就收得快，避免固定 0.26s 的顿挫 */
+function setDrawerDuration(ms) {
+  const value = typeof ms === 'number' && ms > 0 ? Math.round(ms) : 260;
+  document.documentElement.style.setProperty('--drawer-ms', value + 'ms');
+}
+
+function openSidebar(ms) {
+  setDrawerDuration(ms);
   dom.sidebar.classList.add('open');
   dom.scrim.classList.add('open');
   dom.sidebar.setAttribute('aria-hidden', 'false');
@@ -2350,7 +2333,8 @@ function openSidebar() {
   document.documentElement.style.setProperty('--drawer-p', '1');
 }
 
-function closeSidebar() {
+function closeSidebar(ms) {
+  setDrawerDuration(ms);
   dom.sidebar.classList.remove('open');
   dom.scrim.classList.remove('open');
   dom.sidebar.setAttribute('aria-hidden', 'true');
@@ -2363,8 +2347,7 @@ function bindSwipeDrawer() {
   if (document.documentElement.dataset.device !== 'phone') return;
 
   const root = document.documentElement;
-  const EDGE = 48;      // 收起状态只从左边缘起手，避免和滚动、长按抢手势
-  const OPEN_AT = 0.32; // 松手时的进度阈值
+  const EDGE = 48; // 收起状态只从左边缘起手，避免和滚动、长按抢手势
   const drawerWidth = () => Math.min(window.innerWidth * 0.82, 320);
 
   let startX = 0;
@@ -2402,11 +2385,19 @@ function bindSwipeDrawer() {
     if (raf) { cancelAnimationFrame(raf); raf = 0; }
     root.style.setProperty('--drawer-p', String(progress));
     root.classList.remove('drawer-dragging');
-    // 快速轻扫也算数：否则轻轻一甩就回弹，手感很钝
-    const swept = Date.now() - startTime < 240 && Math.abs(progress - baseP) > 0.12;
-    const target = commit ? ((progress >= OPEN_AT || swept) ? 1 : 0) : (baseP > 0.5 ? 1 : 0);
+    // 判据用「朝目标方向走了多少」而不是绝对进度：拖过中点、或者甩得够快就切状态。
+    // 打开与关闭因此是对称的，不会出现“关闭要拖三分之二屏才动”的钝感。
+    const toward = baseP > 0.5 ? 1 - progress : progress;
+    const elapsed = Math.max(1, Date.now() - startTime);
+    const speed = Math.abs(progress - baseP) / elapsed; // 进度 / 毫秒
+    const flung = elapsed < 320 && speed > 0.0009;
+    const open = commit ? (toward > 0.5 || (flung && toward > 0.08)) : (baseP > 0.5);
+    const target = open ? 1 : 0;
+    // 剩余距离越短动画越快：只剩一点点还要等满 0.26s 就是最明显的顿挫来源
+    const remaining = Math.abs(target - progress);
+    const ms = Math.min(300, Math.max(110, Math.round(remaining * 340)));
     // 下一帧再切目标值，回弹/滑完的过渡才真正生效
-    requestAnimationFrame(() => (target ? openSidebar() : closeSidebar()));
+    requestAnimationFrame(() => (target ? openSidebar(ms) : closeSidebar(ms)));
   };
 
   function onMove(e) {
@@ -2416,9 +2407,9 @@ function bindSwipeDrawer() {
     const dx = t.clientX - startX;
     const dy = t.clientY - startY;
     if (!dragging) {
-      if (Math.abs(dx) < 10) return;
+      if (Math.abs(dx) < 6) return;
       // 竖直方向占优：判定为页面滚动，交还给浏览器
-      if (Math.abs(dx) < Math.abs(dy) * 1.1) { finish(false); return; }
+      if (Math.abs(dx) < Math.abs(dy)) { finish(false); return; }
       const wantSign = baseP > 0.5 ? -1 : 1;
       if (Math.sign(dx) !== wantSign) { finish(false); return; }
       dragging = true;
