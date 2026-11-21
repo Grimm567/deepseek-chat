@@ -42,6 +42,8 @@ html, body {
   font-size: 16px;
   line-height: 1.6;
   overscroll-behavior: none;
+  /* 手机端禁掉双指缩放与双击缩放：允许平移滚动，不允许 zoom */
+  touch-action: pan-x pan-y;
 }
 
 body { overflow: hidden; }
@@ -1410,4 +1412,13 @@ html[data-theme='dark'] .tk-n { color: #ffb74d; }
   .modal-card { border-radius: 20px; }
   .sheet { align-items: center; justify-content: center; }
   .sheet-panel { width: 420px; border-radius: 18px; }
+}
+
+/* iOS 在聚焦 font-size < 16px 的输入框时会强制把整页放大，且无视 viewport 的
+   user-scalable=no。手机端把这些输入框统一提到 16px，桌面端维持紧凑字号。 */
+@media (hover: none) {
+  .side-search input { font-size: 16px; }
+  .field input,
+  .field textarea,
+  .field select { font-size: 16px; }
 }

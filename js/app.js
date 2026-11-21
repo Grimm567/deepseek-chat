@@ -2366,6 +2366,20 @@ function keyboardHeight() {
   return Math.max(0, Math.round(base - vv.height));
 }
 
+/* 手机端锁死页面缩放：双指捏合、双击都不许把整页放大。
+   iOS 从 10 起忽略 viewport 的 user-scalable=no（无障碍策略），双指导航只能靠
+   Safari 私有的 gesture 事件拦；touchmove 两指兜底，防止手势事件漏网。 */
+function lockPageZoom() {
+  const block = (e) => e.preventDefault();
+  ['gesturestart', 'gesturechange', 'gestureend'].forEach((name) => {
+    document.addEventListener(name, block, { passive: false });
+  });
+
+  document.addEventListener('touchmove', (e) => {
+    if (e.touches.length > 1) e.preventDefault();
+  }, { passive: false });
+}
+
 // 由 bindViewport 赋值；设置面板关闭等时机需要主动重新套用一次布局
 let applyViewport = () => {};
 
@@ -2483,6 +2497,7 @@ async function init() {
   applyDeviceClass();
   applyComposerGap();
   applyMsgScale();
+  lockPageZoom();
   bindDeviceWatchers();
   bindEvents();
   bindViewport();
