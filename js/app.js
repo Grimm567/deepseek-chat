@@ -2347,6 +2347,18 @@ async function init() {
 
   bindUpdateCheck();
 
+  // 「回到底部」按钮按输入框的实际高度定位，输入框变高/键盘弹起时自动跟着走
+  const composerWrap = dom.composer && dom.composer.closest ? dom.composer.closest('.composer-wrap') : null;
+  if (composerWrap) {
+    const syncComposerHeight = () => {
+      document.documentElement.style.setProperty('--composer-h', composerWrap.offsetHeight + 'px');
+    };
+    syncComposerHeight();
+    if ('ResizeObserver' in window) {
+      new ResizeObserver(syncComposerHeight).observe(composerWrap);
+    }
+  }
+
   // 调试开关：开启后会把流式响应里的工具调用、引用等字段打到控制台
   window.__dsDebug = true;
 

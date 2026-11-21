@@ -703,7 +703,7 @@ html[data-device="desktop"] .msg-actions { display: none; }
 .scroll-bottom {
   position: absolute;
   right: 16px;
-  bottom: 16px;
+  bottom: calc(var(--composer-h, 96px) + 12px);
   width: 42px;
   height: 42px;
   display: grid;
@@ -1244,7 +1244,7 @@ html[data-theme='dark'] .tk-n { color: #ffb74d; }
   /* 桌面端「回到底部」按钮放大 */
   .scroll-bottom {
     right: 24px;
-    bottom: 20px;
+    bottom: calc(var(--composer-h, 96px) + 16px);
     width: 48px;
     height: 48px;
   }
