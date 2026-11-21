@@ -649,8 +649,17 @@ function messageNode(msg, index, session, variantInfo) {
   }
 
   if (citations.length) {
-    const sources = el('div', 'sources');
-    sources.appendChild(el('div', 'sources-title', '来源'));
+    // 来源默认折叠，避免十条链接把对话拉得很长；用户手动展开后本次保持展开，
+    // 流式期间节点会重建，所以状态记在 msg 上（和「已思考」同一套做法）。
+    const sources = el('details', 'sources');
+    sources.open = msg.sourcesOpen === true;
+    sources.addEventListener('toggle', () => {
+      if (sources.open) msg.sourcesOpen = true;
+      else delete msg.sourcesOpen;
+    });
+    const sourceTitle = el('summary', 'sources-title');
+    sourceTitle.textContent = `来源（${citations.length}）`;
+    sources.appendChild(sourceTitle);
     citations.forEach((c, i) => {
       const a = el('a', 'source-item');
       a.href = c.url;

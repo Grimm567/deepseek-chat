@@ -493,10 +493,42 @@ body { overflow: hidden; }
   gap: 5px;
 }
 
+/* 标题行兼作折叠开关：默认收起，点一下展开 */
+.sources > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.sources > summary::-webkit-details-marker { display: none; }
+.sources > summary::marker { content: ''; }
+
+/* 显式收起：details 上加了 flex，个别浏览器不靠 UA 样式隐藏内容 */
+.sources:not([open]) > *:not(summary) { display: none; }
+
+.sources > summary::before {
+  content: '';
+  width: 0;
+  height: 0;
+  border-left: 5px solid currentColor;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  transition: transform .15s ease;
+  flex: none;
+}
+
+.sources[open] > summary::before { transform: rotate(90deg); }
+.sources > summary:active { color: var(--text-2); }
+
 .sources-title {
   font-size: 12px;
   color: var(--text-3);
-  margin-bottom: 2px;
 }
 
 .source-item {
