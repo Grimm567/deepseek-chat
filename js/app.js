@@ -67,6 +67,7 @@ const dom = {
   topTitle: $('topTitle'),
   btnMenu: $('btnMenu'),
   btnNew: $('btnNew'),
+  btnNewSidebar: $('btnNewSidebar'),
   btnSend: $('btnSend'),
   btnStop: $('btnStop'),
   btnAttach: $('btnAttach'),
@@ -1922,7 +1923,7 @@ function bindEvents() {
   });
   dom.scrim.addEventListener('click', closeSidebar);
 
-  dom.btnNew.addEventListener('click', () => {
+  const startNewChat = () => {
     state.currentId = null;
     state.draftImages = [];
     state.draftFiles = [];
@@ -1933,7 +1934,9 @@ function bindEvents() {
     renderDraft();
     renderAll();
     dom.input.focus();
-  });
+  };
+  dom.btnNew.addEventListener('click', startNewChat);
+  if (dom.btnNewSidebar) dom.btnNewSidebar.addEventListener('click', startNewChat);
 
   inputTrackValue = dom.input.value || '';
   inputTrackAt = performance.now();
