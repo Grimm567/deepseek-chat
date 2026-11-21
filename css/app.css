@@ -73,7 +73,8 @@ body { overflow: hidden; }
   z-index: 40;
   display: flex;
   flex-direction: column;
-  transform: translateX(-102%);
+  /* --drawer-p 由滑动跟手写入：0 = 完全收起，1 = 完全展开 */
+  transform: translateX(calc((var(--drawer-p, 0) - 1) * 102%));
   transition: transform .26s cubic-bezier(.32, .72, 0, 1);
   border-right: 1px solid var(--line);
   padding-top: env(safe-area-inset-top, 0px);
@@ -275,12 +276,23 @@ body { overflow: hidden; }
   inset: 0;
   background: rgba(0, 0, 0, .28);
   z-index: 35;
-  opacity: 0;
+  opacity: var(--drawer-p, 0);
   pointer-events: none;
   transition: opacity .26s;
 }
 
 .scrim.open { opacity: 1; pointer-events: auto; }
+
+/* 手指拖动期间必须关掉过渡，否则位移会滞后于手指 */
+html.drawer-dragging .sidebar,
+html.drawer-dragging .scrim,
+html.drawer-dragging .main { transition: none; }
+
+/* 从「已打开」状态往回拖时，.sidebar.open 的 translateX(0) 会压住变量公式，
+   这里用更高特异性把它还原成跟手位移 */
+html.drawer-dragging .sidebar {
+  transform: translateX(calc((var(--drawer-p, 0) - 1) * 102%));
+}
 
 /* ------------------------------ 主区 ------------------------------ */
 
@@ -291,6 +303,9 @@ body { overflow: hidden; }
   min-width: 0;
   position: relative;
   padding-top: env(safe-area-inset-top, 0px);
+  /* 会话栏抽屉跟手：主内容与手指等距右移，和侧栏宽度一致 */
+  transform: translateX(calc(var(--drawer-p, 0) * min(82vw, 320px)));
+  transition: transform .26s cubic-bezier(.32, .72, 0, 1);
 }
 
 .topbar {

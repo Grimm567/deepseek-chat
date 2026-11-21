@@ -2022,11 +2022,7 @@ async function doImport(file) {
 /* ------------------------------ 事件 ------------------------------ */
 
 function bindEvents() {
-  dom.btnMenu.addEventListener('click', () => {
-    dom.sidebar.classList.add('open');
-    dom.scrim.classList.add('open');
-    dom.sidebar.setAttribute('aria-hidden', 'false');
-  });
+  dom.btnMenu.addEventListener('click', openSidebar);
   dom.scrim.addEventListener('click', closeSidebar);
 
   const startNewChat = () => {
@@ -2346,10 +2342,116 @@ function triggerFile(target) {
   dom.imageInput.click();
 }
 
+function openSidebar() {
+  dom.sidebar.classList.add('open');
+  dom.scrim.classList.add('open');
+  dom.sidebar.setAttribute('aria-hidden', 'false');
+  // 进度变量与 .open 类保持一致，避免手势接着拖时位置跳一下
+  document.documentElement.style.setProperty('--drawer-p', '1');
+}
+
 function closeSidebar() {
   dom.sidebar.classList.remove('open');
   dom.scrim.classList.remove('open');
   dom.sidebar.setAttribute('aria-hidden', 'true');
+  document.documentElement.style.setProperty('--drawer-p', '0');
+}
+
+/* 手机端会话栏抽屉：从左边缘向右滑跟手拉出，滑多少页面就移动多少；
+   松手时进度超过阈值就把剩下那段滑完，否则回弹。已打开时在主区向左滑关闭。 */
+function bindSwipeDrawer() {
+  if (document.documentElement.dataset.device !== 'phone') return;
+
+  const root = document.documentElement;
+  const EDGE = 48;      // 收起状态只从左边缘起手，避免和滚动、长按抢手势
+  const OPEN_AT = 0.32; // 松手时的进度阈值
+  const drawerWidth = () => Math.min(window.innerWidth * 0.82, 320);
+
+  let startX = 0;
+  let startY = 0;
+  let baseP = 0;
+  let progress = 0;
+  let tracking = false;
+  let dragging = false;
+  let raf = 0;
+  let queued = 0;
+  let startTime = 0;
+
+  const isOpen = () => dom.sidebar.classList.contains('open');
+
+  const queueProgress = (p) => {
+    const value = Math.max(0, Math.min(1, p));
+    progress = value;
+    queued = value;
+    if (raf) return;
+    raf = requestAnimationFrame(() => {
+      raf = 0;
+      root.style.setProperty('--drawer-p', String(queued));
+    });
+  };
+
+  const detach = () => document.removeEventListener('touchmove', onMove);
+
+  const finish = (commit) => {
+    if (!tracking) return;
+    detach();
+    tracking = false;
+    if (!dragging) return;
+    dragging = false;
+    // 先把最后一帧的进度落地，再取消挂起的 rAF，否则过渡开始后还会跳一下
+    if (raf) { cancelAnimationFrame(raf); raf = 0; }
+    root.style.setProperty('--drawer-p', String(progress));
+    root.classList.remove('drawer-dragging');
+    // 快速轻扫也算数：否则轻轻一甩就回弹，手感很钝
+    const swept = Date.now() - startTime < 240 && Math.abs(progress - baseP) > 0.12;
+    const target = commit ? ((progress >= OPEN_AT || swept) ? 1 : 0) : (baseP > 0.5 ? 1 : 0);
+    // 下一帧再切目标值，回弹/滑完的过渡才真正生效
+    requestAnimationFrame(() => (target ? openSidebar() : closeSidebar()));
+  };
+
+  function onMove(e) {
+    if (!tracking) return;
+    if (e.touches.length !== 1) { finish(false); return; }
+    const t = e.touches[0];
+    const dx = t.clientX - startX;
+    const dy = t.clientY - startY;
+    if (!dragging) {
+      if (Math.abs(dx) < 10) return;
+      // 竖直方向占优：判定为页面滚动，交还给浏览器
+      if (Math.abs(dx) < Math.abs(dy) * 1.1) { finish(false); return; }
+      const wantSign = baseP > 0.5 ? -1 : 1;
+      if (Math.sign(dx) !== wantSign) { finish(false); return; }
+      dragging = true;
+      root.classList.add('drawer-dragging');
+    }
+    if (e.cancelable) e.preventDefault();
+    queueProgress(baseP + dx / drawerWidth());
+  }
+
+  document.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    const t = e.touches[0];
+    const node = t.target;
+    // 横向可滚动区域、输入框、侧栏内部都不接管
+    if (node && node.closest && node.closest('.code pre, .table-wrap, textarea, input, .sidebar')) return;
+    if (isOpen()) {
+      baseP = 1;
+    } else {
+      if (t.clientX > EDGE) return;
+      baseP = 0;
+    }
+    startX = t.clientX;
+    startY = t.clientY;
+    progress = baseP;
+    startTime = Date.now();
+    tracking = true;
+    dragging = false;
+    // 确认是抽屉候选后才挂非 passive 监听，平时滚动完全不经过 JS
+    document.addEventListener('touchmove', onMove, { passive: false });
+  }, { passive: true });
+
+  document.addEventListener('touchend', () => finish(true), { passive: true });
+  document.addEventListener('touchcancel', () => finish(false), { passive: true });
 }
 
 /* ------------------------------ 启动 ------------------------------ */
@@ -2516,6 +2618,7 @@ async function init() {
   lockPageZoom();
   bindDeviceWatchers();
   bindEvents();
+  bindSwipeDrawer();
   bindViewport();
   autoGrow();
 
