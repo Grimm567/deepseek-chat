@@ -17,6 +17,7 @@ const DEFAULTS = {
   temperature: 1,
   composerGap: 0,
   autoScroll: true,
+  msgScale: 1,
 };
 
 function loadSettings() {
@@ -168,6 +169,13 @@ function applyComposerGap() {
     '--composer-gap',
     (Number.isFinite(gap) ? Math.max(0, gap) : 0) + 'px'
   );
+}
+
+/** 对话内容的字号缩放 */
+function applyMsgScale() {
+  const value = Number(state.settings.msgScale);
+  const scale = Number.isFinite(value) && value > 0 ? Math.min(1.5, Math.max(0.85, value)) : 1;
+  document.documentElement.style.setProperty('--msg-scale', String(scale));
 }
 
 /* ------------------------------ 设备类型 ------------------------------ */
@@ -1797,6 +1805,14 @@ function openSettings() {
     }
     const autoScrollInput = document.getElementById('setAutoScroll');
     if (autoScrollInput) autoScrollInput.checked = state.settings.autoScroll !== false;
+
+    const scaleInput = document.getElementById('setMsgScale');
+    if (scaleInput) {
+      const scale = Number(state.settings.msgScale);
+      scaleInput.value = String(Number.isFinite(scale) && scale > 0 ? scale : 1);
+      const scaleLabel = document.getElementById('scaleValue');
+      if (scaleLabel) scaleLabel.textContent = Math.round(Number(scaleInput.value) * 100) + '%';
+    }
   } catch (err) {
     console.error('填充设置失败', err);
   }
@@ -1834,10 +1850,12 @@ async function saveSettingsFromForm() {
     temperature: Number($('setTemp').value),
     composerGap: Number($('setGap').value),
     autoScroll: $('setAutoScroll').checked,
+    msgScale: Number($('setMsgScale').value),
   });
   saveSettings();
   applyTheme();
   applyComposerGap();
+  applyMsgScale();
   closeSettings();
 
   if (key) {
@@ -2023,6 +2041,13 @@ function bindEvents() {
   });
   $('setAutoScroll').addEventListener('change', (e) => {
     state.settings.autoScroll = e.target.checked;
+  });
+  $('setMsgScale').addEventListener('input', (e) => {
+    const scale = Number(e.target.value);
+    $('scaleValue').textContent = Math.round(scale * 100) + '%';
+    // 实时预览，点“保存”才会写进本地设置
+    state.settings.msgScale = scale;
+    applyMsgScale();
   });
   $('btnCloseSettings').addEventListener('click', closeSettings);
   $('btnSaveSettings').addEventListener('click', saveSettingsFromForm);
@@ -2306,6 +2331,7 @@ async function init() {
   applyTheme();
   applyDeviceClass();
   applyComposerGap();
+  applyMsgScale();
   bindDeviceWatchers();
   bindEvents();
   bindViewport();

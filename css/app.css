@@ -379,7 +379,11 @@ body { overflow: hidden; }
 
 .msg.assistant { align-items: stretch; }
 
-.msg .md { word-break: break-word; }
+.msg .md {
+  word-break: break-word;
+  /* 对话内容字号由设置里的「文字大小」控制 */
+  font-size: calc(16px * var(--msg-scale, 1));
+}
 
 .msg .md > *:first-child { margin-top: 0; }
 .msg .md > *:last-child { margin-bottom: 0; }
