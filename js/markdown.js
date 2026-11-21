@@ -174,22 +174,46 @@ export function highlightCode(code, lang) {
 
 /* ------------------------------- 行内语法 ------------------------------- */
 
+/** 把 escapeHtml 转过的实体还原：行内公式的 tex 是转义过的文本，KaTeX 需要原始字符 */
+function unescapeHtml(value) {
+  return String(value)
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+/** 公式渲染缓存：流式输出每帧都重建整条消息，没有缓存时同一批公式会被反复渲染 */
+const mathCache = new Map();
+
 /** 用 KaTeX 渲染公式；未加载时降级为等宽文本 */
 function mathHtml(tex, display) {
+  const raw = unescapeHtml(tex || '').trim();
   const katex = typeof window !== 'undefined' ? window.katex : null;
-  const raw = String(tex || '').trim();
   if (!katex || typeof katex.renderToString !== 'function') {
+    // 降级结果不进缓存：KaTeX 迟到后需要重新渲染出真正的公式
     return `<code class="math-raw">${escapeHtml(raw)}</code>`;
   }
+  const key = (display ? 'B' : 'I') + '\u0000' + raw;
+  const cached = mathCache.get(key);
+  if (cached) return cached;
+
+  let html;
   try {
-    return katex.renderToString(raw, {
+    html = katex.renderToString(raw, {
       displayMode: !!display,
       throwOnError: false,
       strict: 'ignore',
+      // 只输出 HTML：KaTeX 默认同时吐一份 MathML，DOM 体积翻倍，长对话滚动会明显变沉
+      output: 'html',
     });
   } catch {
-    return `<code class="math-raw">${escapeHtml(raw)}</code>`;
+    html = `<code class="math-raw">${escapeHtml(raw)}</code>`;
   }
+  if (mathCache.size >= 400) mathCache.clear();
+  mathCache.set(key, html);
+  return html;
 }
 
 function inline(text, stash) {
@@ -208,7 +232,7 @@ function inline(text, stash) {
   s = s.replace(/\\\(([^\n]+?)\\\)/g, (m, tex) => token(mathHtml(tex, false)));
 
   s = s.replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g,
-    (_, alt, url) => token(`<img class="md-img" src="${safeUrl(url)}" alt="${alt}" loading="lazy">`));
+    (_, alt, url) => token(`<img class="md-img" src="${safeUrl(url)}" alt="${alt}" loading="lazy" decoding="async">`));
   s = s.replace(/\[([^\]\n]+)\]\(([^)\s]+)\)/g,
     (_, label, url) => token(`<a href="${safeUrl(url)}" target="_blank" rel="noopener noreferrer">${label}</a>`));
 
@@ -290,9 +314,11 @@ export function renderMarkdown(src) {
     return `\u0002${stash.length - 1}\u0002\n`;
   });
 
-  // 有的接口会把反斜杠再转义一层，出现 \\( 这种写法，先归一回单反斜杠，
-  // 否则公式定界符认不出来（代码块已抽走，不会误改代码里的内容）。
-  text = text.replace(/\\\\([[\]()])/g, '\\$1');
+  // 有的接口会把反斜杠再转义一层，出现 \\(...\\) / \\[...\\] 这种写法。
+  // 只归一“成对出现”的定界符，绝不能碰 LaTeX 自己的 \\[8pt]（换行间距）这类命令，
+  // 否则公式里会冒出 \ 后跟 [8pt] 的乱码，KaTeX 直接报错整段显示红色。
+  text = text.replace(/\\\\\(([\s\S]*?)\\\\\)/g, (m, tex) => `\\(${tex}\\)`);
+  text = text.replace(/\\\\\[([\s\S]*?)\\\\\]/g, (m, tex) => `\\[${tex}\\]`);
 
   // 收集脚注定义 [^id]: 内容，并从正文移除
   const footnotes = [];

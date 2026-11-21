@@ -131,7 +131,6 @@ body { overflow: hidden; }
 .conv-scroll {
   flex: 1;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   padding: 0 8px 12px;
 }
 
@@ -331,7 +330,8 @@ body { overflow: hidden; }
 .chat {
   flex: 1;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  /* 不再写 -webkit-overflow-scrolling: touch：iOS 13+ 它是废弃属性，
+     和 position: fixed 的容器叠加时反而会掉帧、快速滑动露出白块 */
   padding: 8px 16px 16px;
   scroll-behavior: smooth;
   /* 回到底部按钮相对聊天区定位，始终贴在输入框上方，不被键盘/多行输入框挡住 */
@@ -1099,7 +1099,6 @@ html.kb-open .chat {
 .modal-body {
   padding: 16px 18px;
   overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
   /* 键盘让出空间后卡片变矮，正文负责滚动，保证输入框能滚进可视区 */
   flex: 1 1 auto;
   min-height: 0;

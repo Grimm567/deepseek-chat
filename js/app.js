@@ -1198,7 +1198,8 @@ function scrollToBottom(force) {
 function updateScrollButton() {
   const box = dom.chat;
   const away = box.scrollHeight - box.scrollTop - box.clientHeight > 300;
-  dom.btnScrollBottom.hidden = !away;
+  // 滚动事件每帧都来，值没变就别碰 DOM
+  if (dom.btnScrollBottom.hidden !== !away) dom.btnScrollBottom.hidden = !away;
 }
 
 function newSession() {
@@ -2374,10 +2375,8 @@ function lockPageZoom() {
   ['gesturestart', 'gesturechange', 'gestureend'].forEach((name) => {
     document.addEventListener(name, block, { passive: false });
   });
-
-  document.addEventListener('touchmove', (e) => {
-    if (e.touches.length > 1) e.preventDefault();
-  }, { passive: false });
+  // 这里刻意不挂全局非 passive 的 touchmove 兜底：iOS 会强制每个触摸帧同步回主线程，
+  // 快速上滑时掉帧、露出白块，代价远大于收益。手势事件 + CSS touch-action 已经够了。
 }
 
 // 由 bindViewport 赋值；设置面板关闭等时机需要主动重新套用一次布局
@@ -2386,6 +2385,8 @@ let applyViewport = () => {};
 function bindViewport() {
   const vv = window.visualViewport;
   if (!vv) return;
+  let lastKey = '';
+  let queued = false;
   const apply = () => {
     const root = document.documentElement;
     if (vv.height > viewportBaseline) viewportBaseline = vv.height;
@@ -2394,7 +2395,13 @@ function bindViewport() {
     const chatInputFocused = document.activeElement === dom.input;
     const keyboardOpen = kb > 120 || (chatInputFocused && vv.height < viewportBaseline - 60);
     const settingsOpen = !!dom.modal && !dom.modal.hidden;
-    const fullHeight = (viewportBaseline || window.innerHeight) + 'px';
+    const baseHeight = viewportBaseline || window.innerHeight;
+    // 页面滚动时 visualViewport 的 scroll 也会触发。值没变就没必要重写样式：
+    // 改 --vvh/--vvy 会让整个固定布局重排，快速上滑时会掉帧并露出白块。
+    const key = [kb, keyboardOpen, settingsOpen, vv.height, vv.offsetTop, baseHeight].join('|');
+    if (key === lastKey) return;
+    lastKey = key;
+    const fullHeight = baseHeight + 'px';
 
     // 设置面板打开时不让整页上移避让键盘：.app 保持原位，只把键盘高度交给弹层（--kb），
     // 由弹层自己收缩让输入框留在键盘上方。否则 .app 收缩并底部对齐会把 API Key 等输入框顶出可视区。
@@ -2413,9 +2420,18 @@ function bindViewport() {
     root.classList.toggle('kb-open', keyboardOpen);
     if (document.activeElement === dom.input) scrollToBottom(true);
   };
+  // 用 rAF 合并同一帧内的多次触发，避免键盘动画期间反复重排
+  const schedule = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => {
+      queued = false;
+      apply();
+    });
+  };
   applyViewport = apply;
-  vv.addEventListener('resize', apply);
-  vv.addEventListener('scroll', apply);
+  vv.addEventListener('resize', schedule);
+  vv.addEventListener('scroll', schedule);
   apply();
 
   // 横竖屏切换后基准会失效，重新取一次
