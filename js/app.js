@@ -1028,6 +1028,59 @@ async function copyText(text) {
   toast(ok ? '已复制' : '复制失败，请长按选中文本');
 }
 
+/* ------------------------------ 图片查看器 ------------------------------ */
+
+let viewerList = [];
+let viewerIndex = 0;
+let viewerEl = null;
+
+function ensureViewer() {
+  if (viewerEl) return viewerEl;
+  viewerEl = el('div', 'img-viewer');
+  viewerEl.innerHTML = '<button class="img-viewer-close" aria-label="关闭">×</button>'
+    + '<button class="img-viewer-nav img-viewer-prev" aria-label="上一张">‹</button>'
+    + '<img class="img-viewer-img" alt="">'
+    + '<button class="img-viewer-nav img-viewer-next" aria-label="下一张">›</button>';
+  document.body.appendChild(viewerEl);
+  viewerEl.addEventListener('click', (e) => {
+    if (e.target === viewerEl || e.target.closest('.img-viewer-close')) closeImageViewer();
+    else if (e.target.closest('.img-viewer-prev')) stepImageViewer(-1);
+    else if (e.target.closest('.img-viewer-next')) stepImageViewer(1);
+  });
+  return viewerEl;
+}
+
+function updateImageViewer() {
+  if (!viewerEl) return;
+  const img = viewerEl.querySelector('.img-viewer-img');
+  img.src = viewerList[viewerIndex] || '';
+  const multi = viewerList.length > 1;
+  viewerEl.querySelector('.img-viewer-prev').style.display = multi ? 'grid' : 'none';
+  viewerEl.querySelector('.img-viewer-next').style.display = multi ? 'grid' : 'none';
+}
+
+function openImageViewer(list, index) {
+  viewerList = (list || []).filter(Boolean);
+  if (!viewerList.length) return;
+  viewerIndex = Math.min(Math.max(0, index || 0), viewerList.length - 1);
+  const v = ensureViewer();
+  v.hidden = false;
+  v.style.display = 'flex';
+  updateImageViewer();
+}
+
+function stepImageViewer(delta) {
+  if (viewerList.length < 2) return;
+  viewerIndex = (viewerIndex + delta + viewerList.length) % viewerList.length;
+  updateImageViewer();
+}
+
+function closeImageViewer() {
+  if (!viewerEl) return;
+  viewerEl.hidden = true;
+  viewerEl.style.display = 'none';
+}
+
 /* ------------------------------ 气泡菜单 ------------------------------ */
 
 // 菜单刚弹出的一小段时间内不响应点击：长按触发时手指还没抬起，
@@ -2153,6 +2206,40 @@ function bindEvents() {
     if (!changed) return;
     persist(session);
     renderMessages();
+  });
+
+  // 点击附件缩略图 / 消息里的图片：放大查看（同一组可左右切换）
+  document.addEventListener('click', (e) => {
+    const img = e.target instanceof HTMLImageElement ? e.target : null;
+    if (!img) return;
+    const draftCell = img.closest('.draft-cell');
+    const gallery = img.closest('.gallery');
+    const editorImages = img.closest('.msg-editor-images');
+    const mdImg = img.classList.contains('md-img');
+    if (!draftCell && !gallery && !editorImages && !mdImg) return;
+    const container = draftCell ? draftCell.parentElement : (gallery || editorImages || null);
+    const list = container
+      ? Array.from(container.querySelectorAll('img')).map((x) => x.src)
+      : [img.src];
+    const index = Math.max(0, list.indexOf(img.src));
+    openImageViewer(list, index);
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
+  // 键盘：ESC 关闭、左右切换
+  document.addEventListener('keydown', (e) => {
+    if (!viewerEl || viewerEl.hidden) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeImageViewer();
+    } else if (e.key === 'ArrowLeft') {
+      e.preventDefault();
+      stepImageViewer(-1);
+    } else if (e.key === 'ArrowRight') {
+      e.preventDefault();
+      stepImageViewer(1);
+    }
   });
 
   bindDragDrop();
