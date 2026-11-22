@@ -593,11 +593,9 @@ function messageNode(msg, index, session, variantInfo) {
     appendVariants(wrap, session, msg, variantInfo);
     wrap.appendChild(el('div', 'hover-zone'));
     wrap.appendChild(hoverActions(msg, index, session, msg.content || ''));
-    bindLongPress(wrap, () => openMessageMenu(msg, index, session));
-    wrap.addEventListener('contextmenu', (e) => {
-      if (textSelectionActive()) return; // 有选中文字时保留系统的复制菜单
-      e.preventDefault();
-      openMessageMenu(msg, index, session);
+    bindLongPress(wrap, (x, y) => {
+      if (document.documentElement.classList.contains('sel-mode')) return; // 框选中：不要再弹菜单
+      openMessageMenu(msg, index, session, { x, y }, wrap);
     });
     return wrap;
   }
@@ -694,15 +692,10 @@ function messageNode(msg, index, session, variantInfo) {
 
   // 生成中的回复不弹气泡菜单：流式期间节点每帧重建，长按 + iOS 手势会打架，
   // 菜单可能关不掉；删除 pending 消息也会让流式状态错乱。
-  bindLongPress(wrap, () => {
+  bindLongPress(wrap, (x, y) => {
     if (msg.pending) return;
-    openMessageMenu(msg, index, session);
-  });
-  wrap.addEventListener('contextmenu', (e) => {
-    if (textSelectionActive()) return; // 有选中文字时保留系统的复制菜单
-    e.preventDefault();
-    if (msg.pending) return;
-    openMessageMenu(msg, index, session);
+    if (document.documentElement.classList.contains('sel-mode')) return; // 框选中：不要再弹菜单
+    openMessageMenu(msg, index, session, { x, y }, wrap);
   });
   return wrap;
 }
@@ -712,6 +705,7 @@ function messageNode(msg, index, session, variantInfo) {
 const ICON_COPY = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="11" height="11" rx="2.2"></rect><path d="M5.5 14.5V6.2A1.7 1.7 0 0 1 7.2 4.5h8.3"></path></svg>';
 const ICON_EDIT = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20l4.6-1.1L19 8.5a2.1 2.1 0 0 0-3-3L5.6 15.9 4 20z"></path><path d="M13.6 6.4l3 3"></path></svg>';
 const ICON_REGEN = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.34-5.66"></path><path d="M20 4v5h-5"></path></svg>';
+const ICON_TRASH = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16"></path><path d="M9.5 7V5.2A1.2 1.2 0 0 1 10.7 4h2.6a1.2 1.2 0 0 1 1.2 1.2V7"></path><path d="M6.5 7l.8 12.2A1.6 1.6 0 0 0 8.9 20.7h6.2a1.6 1.6 0 0 0 1.6-1.5L17.5 7"></path><path d="M10.2 11v5.5M13.8 11v5.5"></path></svg>';
 
 /** 桌面端悬停菜单：用户消息 =「复制 / 修改」，助手消息 =「复制 / 重新生成」 */
 function hoverActions(msg, index, session, text) {
@@ -747,6 +741,17 @@ function hoverActions(msg, index, session, text) {
     });
     bar.appendChild(regen);
   }
+
+  // 桌面端取消了右键菜单，删除入口放在这里
+  const del = el('button', 'hact');
+  del.type = 'button';
+  del.title = '删除';
+  del.innerHTML = ICON_TRASH;
+  del.addEventListener('click', (e) => {
+    e.stopPropagation();
+    deleteMessage(msg, session);
+  });
+  bar.appendChild(del);
   return bar;
 }
 
@@ -956,10 +961,18 @@ function renderMessages() {
   }
 }
 
-function openMessageMenu(msg, index, session) {
+function openMessageMenu(msg, index, session, point, msgEl) {
   const items = [
     { label: '复制', icon: 'copy', run: () => copyText(msg.content || '') },
   ];
+  // 手机端长按才有坐标：加「选择文本」，点了才进入框选
+  if (point) {
+    items.push({
+      label: '选择文本',
+      icon: 'select',
+      run: () => startTextSelect(msgEl, point),
+    });
+  }
   if (msg.role === 'user') {
     items.push({
       label: '编辑并重发',
@@ -977,30 +990,147 @@ function openMessageMenu(msg, index, session) {
     label: '删除这条',
     icon: 'trash',
     danger: true,
-    run: async () => {
-      // 正在生成的回复：先把流式中止，避免删除后流式回调继续改状态
-      if (msg.pending && state.controller) {
-        try { state.controller.abort(); } catch { /* 忽略 */ }
-      }
-      // 树形结构：连带删掉它的所有后代，别把别的分支也带走
-      const doomed = new Set([msg.id]);
-      let grew = true;
-      while (grew) {
-        grew = false;
-        for (const node of session.messages) {
-          if (node.parentId && doomed.has(node.parentId) && !doomed.has(node.id)) {
-            doomed.add(node.id);
-            grew = true;
-          }
-        }
-      }
-      session.messages = session.messages.filter((node) => !doomed.has(node.id));
-      touchSession(session);
-      await persist(session);
-      renderAll();
-    },
+    run: () => deleteMessage(msg, session),
   });
-  openSheet(items);
+  // 手机端贴着长按位置弹出；没有坐标（兜底路径）仍用底部弹层
+  if (point) openFloatMenu(items, point);
+  else openSheet(items);
+}
+
+/* ------------------------------ 浮动菜单 ------------------------------ */
+
+let floatMenuEl = null;
+
+function onFloatMenuOutside(e) {
+  if (floatMenuEl && !floatMenuEl.contains(e.target)) closeFloatMenu();
+}
+
+function closeFloatMenu() {
+  if (!floatMenuEl) return;
+  floatMenuEl.remove();
+  floatMenuEl = null;
+  document.removeEventListener('pointerdown', onFloatMenuOutside, true);
+}
+
+/** 贴着长按位置弹出的菜单，超出屏幕会自动翻到另一侧 */
+function openFloatMenu(items, point) {
+  closeFloatMenu();
+  const menu = el('div', 'float-menu');
+  for (const item of items) {
+    const btn = el('button', 'float-item' + (item.danger ? ' danger' : ''), item.label);
+    btn.type = 'button';
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeFloatMenu();
+      item.run();
+    });
+    menu.appendChild(btn);
+  }
+  document.body.appendChild(menu);
+
+  const rect = menu.getBoundingClientRect();
+  const gap = 10;
+  let left = point.x + gap;
+  let top = point.y + gap;
+  if (left + rect.width > window.innerWidth - 8) left = Math.max(8, point.x - rect.width - gap);
+  if (top + rect.height > window.innerHeight - 8) top = Math.max(8, window.innerHeight - rect.height - 8);
+  menu.style.left = left + 'px';
+  menu.style.top = top + 'px';
+  floatMenuEl = menu;
+  // 下一帧再挂外部点击，避免这次长按的残留事件立刻关掉菜单
+  setTimeout(() => document.addEventListener('pointerdown', onFloatMenuOutside, true), 0);
+}
+
+/* ------------------------------ 选择文本 ------------------------------ */
+
+/** 由 bindSelectionBar 赋值；进入/退出框选模式时要刷新那条工具条 */
+let refreshSelectBar = () => {};
+
+/** 取长按点所在的文本位置（兼容 WebKit 与标准两套 API） */
+function caretRangeAt(point) {
+  if (document.caretRangeFromPoint) return document.caretRangeFromPoint(point.x, point.y);
+  if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(point.x, point.y);
+    if (!pos || !pos.offsetNode) return null;
+    const range = document.createRange();
+    range.setStart(pos.offsetNode, pos.offset);
+    range.collapse(true);
+    return range;
+  }
+  return null;
+}
+
+/** 长按点所在的那句话：按句末标点切边界，作为「选择文本」的初始选区 */
+function sentenceRangeAt(point, msgEl) {
+  const caret = caretRangeAt(point);
+  if (!caret) return null;
+  if (msgEl && !msgEl.contains(caret.startContainer)) return null;
+  let node = caret.startContainer;
+  if (node.nodeType !== 3) {
+    const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+    node = walker.nextNode();
+  }
+  if (!node || node.nodeType !== 3) return null;
+  const text = node.textContent || '';
+  const offset = Math.min(caret.startOffset, text.length);
+  const STOP = /[。！？!?；;\n]/; // 句末标点；整段没标点就选整段
+  let start = offset;
+  let end = offset;
+  while (start > 0 && !STOP.test(text[start - 1])) start--;
+  while (end < text.length && !STOP.test(text[end])) end++;
+  if (end < text.length) end++; // 把句末标点也带上
+  const range = document.createRange();
+  range.setStart(node, start);
+  range.setEnd(node, end);
+  return range;
+}
+
+/** 进入框选模式：先自动选中长按处那句话，再把该消息放开为可选中，供手动拖手柄微调 */
+function startTextSelect(msgEl, point) {
+  if (!msgEl) return;
+  document.documentElement.classList.add('sel-mode');
+  msgEl.classList.add('select-mode');
+  const range = sentenceRangeAt(point, msgEl);
+  const sel = window.getSelection();
+  if (range && sel) {
+    sel.removeAllRanges();
+    sel.addRange(range);
+  }
+  refreshSelectBar();
+}
+
+/** 退出框选模式：恢复「长按弹菜单」的默认行为 */
+function exitTextSelect() {
+  document.documentElement.classList.remove('sel-mode');
+  for (const node of document.querySelectorAll('.msg.select-mode')) node.classList.remove('select-mode');
+  const sel = window.getSelection();
+  if (sel) sel.removeAllRanges();
+  refreshSelectBar();
+}
+
+/** 删除一条消息（含它的所有分支后代），供气泡菜单与框选工具条共用 */
+async function deleteMessage(msg, session) {
+  // 正在生成的回复：先把流式中止，避免删除后流式回调继续改状态
+  if (msg.pending && state.controller) {
+    try { state.controller.abort(); } catch { /* 忽略 */ }
+  }
+  // 树形结构：连带删掉它的所有后代，别把别的分支也带走
+  const doomed = new Set([msg.id]);
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const node of session.messages) {
+      if (node.parentId && doomed.has(node.parentId) && !doomed.has(node.id)) {
+        doomed.add(node.id);
+        grew = true;
+      }
+    }
+  }
+  session.messages = session.messages.filter((node) => !doomed.has(node.id));
+  touchSession(session);
+  await persist(session);
+  renderAll();
 }
 
 async function copyText(text) {
@@ -1154,12 +1284,10 @@ function bindLongPress(node, handler) {
     startX = e.clientX;
     startY = e.clientY;
     timer = setTimeout(() => {
-      // 长按正文时 iOS 会先启动系统的文本选择（约 500ms）：这时候别再弹 App 自己的
-      // 长按菜单，否则两套菜单打架，用户就没法正常拖选某一段文字。
-      if (textSelectionActive()) return;
       fired = true;
-      handler();
-    }, 700);
+      // 把长按位置交给菜单：手机端菜单要贴着手指弹出，而不是从底部滑出
+      handler(startX, startY);
+    }, 480);
   });
 
   const cancel = () => {
@@ -2552,6 +2680,87 @@ function bindSwipeDrawer() {
   document.addEventListener('touchcancel', () => finish(false), { passive: true });
 }
 
+/* ------------------------------ 框选工具条 ------------------------------ */
+
+/** 手机端长按正文会进入系统文本选择。选区出现时给一组操作（复制选中/复制全文/修改/删除），
+   否则长按就只剩框选，原来的长按菜单进不来了。 */
+function bindSelectionBar() {
+  if (document.documentElement.dataset.device !== 'phone') return;
+
+  const bar = el('div', 'sel-bar');
+  bar.hidden = true;
+  document.body.appendChild(bar);
+
+  let timer = 0;
+  const hide = () => { bar.hidden = true; };
+  const clearSelection = () => {
+    const sel = window.getSelection();
+    if (sel) sel.removeAllRanges();
+  };
+
+  const addButton = (label, run) => {
+    const btn = el('button', 'sel-btn', label);
+    btn.type = 'button';
+    // 用 pointerdown：系统在点击瞬间就会折叠选区，等到 click 时工具条可能已经收起
+    btn.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      run();
+    });
+    bar.appendChild(btn);
+    return btn;
+  };
+
+  const refresh = () => {
+    const sel = window.getSelection();
+    const text = sel && !sel.isCollapsed ? String(sel).trim() : '';
+    const selecting = document.documentElement.classList.contains('sel-mode');
+
+    // 框选模式：只给「复制选中 / 完成」；此时可能还没有选区（等用户拖手柄）
+    if (selecting) {
+      bar.innerHTML = '';
+      const copyBtn = addButton('复制选中', () => { if (text) copyText(text); });
+      copyBtn.disabled = !text;
+      addButton('完成', exitTextSelect);
+      bar.hidden = false;
+      return;
+    }
+
+    if (!text) { hide(); return; }
+    const anchor = sel.anchorNode;
+    const anchorEl = anchor && (anchor.nodeType === 1 ? anchor : anchor.parentElement);
+    const msgEl = anchorEl && anchorEl.closest ? anchorEl.closest('.msg') : null;
+    const session = currentSession();
+    const msg = msgEl && session ? session.messages.find((m) => m.id === msgEl.dataset.id) : null;
+    if (!msg) { hide(); return; }
+    const index = session.messages.indexOf(msg);
+
+    bar.innerHTML = '';
+    addButton('复制选中', () => { copyText(text); clearSelection(); hide(); });
+    addButton('复制全文', () => { copyText(msg.content || ''); clearSelection(); hide(); });
+    if (msg.role === 'user') {
+      addButton('修改', () => { clearSelection(); hide(); editMessage(session, index); });
+    }
+    addButton('删除', () => { clearSelection(); hide(); deleteMessage(msg, session); });
+    bar.hidden = false;
+  };
+  refreshSelectBar = refresh;
+
+  // 选区变化很频繁，稍微防抖再算
+  document.addEventListener('selectionchange', () => {
+    clearTimeout(timer);
+    timer = setTimeout(refresh, 60);
+  });
+
+  // 框选模式下，点到消息之外的空白就退出（拖手柄时点在文本上，不受影响）
+  document.addEventListener('pointerdown', (e) => {
+    if (!document.documentElement.classList.contains('sel-mode')) return;
+    const node = e.target;
+    if (node && node.closest && (node.closest('.sel-bar') || node.closest('.msg.select-mode'))) return;
+    exitTextSelect();
+  }, true);
+}
+
 /* ------------------------------ 启动 ------------------------------ */
 
 // 无键盘时的可视区高度基准。iOS 独立 PWA 里键盘弹起时 innerHeight 也会跟着缩，
@@ -2717,6 +2926,7 @@ async function init() {
   bindDeviceWatchers();
   bindEvents();
   bindSwipeDrawer();
+  bindSelectionBar();
   bindViewport();
   autoGrow();
 

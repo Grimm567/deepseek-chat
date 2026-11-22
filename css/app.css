@@ -1343,6 +1343,11 @@ html.kb-open .chat {
    但消息正文必须允许选择，否则只能整条复制、没法框选某一段。
    正文可选后，长按正文会触发系统的文本选择，App 自己的长按菜单会自动退让（见 bindLongPress）。 */
 @media (hover: none) {
+  .msg .md,
+  .msg .bubble-text,
+  .msg .think-body,
+  .msg .code,
+  .msg .code code,
   .msg img,
   .msg-actions,
   .msg .act,
@@ -1354,10 +1359,85 @@ html.kb-open .chat {
     -webkit-touch-callout: none;
     user-select: none;
   }
+
+  /* 框选模式（长按菜单里点了「选择文本」）：只放开这条消息的正文，让用户拖手柄微调 */
+  .msg.select-mode .md,
+  .msg.select-mode .bubble-text,
+  .msg.select-mode .think-body,
+  .msg.select-mode .code,
+  .msg.select-mode .code code {
+    -webkit-user-select: text;
+    -webkit-touch-callout: default;
+    user-select: text;
+  }
 }
 
-.tk-k { color: #7c4dff; }
-.tk-s { color: #2e7d32; }
+/* 框选文字后的浮动操作条（手机端长按正文进入系统选择时出现） */
+.sel-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--composer-h, 96px) + 14px);
+  transform: translateX(-50%);
+  display: flex;
+  gap: 2px;
+  padding: 5px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .18);
+  z-index: 70;
+  white-space: nowrap;
+}
+
+.sel-btn {
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.sel-btn:active { background: var(--bg-soft); }
+.sel-btn.danger { color: var(--danger); }
+.sel-btn:disabled { opacity: .45; }
+
+/* 手机端长按后贴着手指弹出的菜单 */
+.float-menu {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 80;
+  min-width: 160px;
+  padding: 6px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.float-item {
+  display: flex;
+  align-items: center;
+  padding: 11px 12px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-size: 15px;
+  text-align: left;
+  border-radius: 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.float-item:active { background: var(--bg-soft); }
+.float-item.danger { color: var(--danger); }
+
+.tk-k { color: #7c4dff; }.tk-s { color: #2e7d32; }
 .tk-c { color: var(--text-3); font-style: italic; }
 .tk-n { color: #b26a00; }
 
