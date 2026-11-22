@@ -305,9 +305,14 @@ html.drawer-dragging .sidebar {
   min-width: 0;
   position: relative;
   padding-top: env(safe-area-inset-top, 0px);
-  /* 会话栏抽屉跟手：主内容与手指等距右移，和侧栏宽度一致 */
-  transform: translateX(calc(var(--drawer-p, 0) * min(82vw, 320px)));
   transition: transform var(--drawer-ms, .26s) cubic-bezier(.32, .72, 0, 1);
+}
+
+/* 抽屉跟手只在真正拉抽屉时给 .main 加 transform。
+   常驻 transform 会让 .main 变成合成层，iOS 在合成层里绘制文本选区会出问题：
+   框选框不可见、滚动时闪烁、停下才出现。 */
+html.drawer-on .main {
+  transform: translateX(calc(var(--drawer-p, 0) * min(82vw, 320px)));
 }
 
 .topbar {

@@ -1086,12 +1086,24 @@ function sentenceRangeAt(point, msgEl) {
   return range;
 }
 
+/** 兜底选区：整条消息的内容（caret 定位失败时用） */
+function rangeOfMessage(msgEl) {
+  const body = msgEl.querySelector('.md, .bubble-text') || msgEl;
+  const range = document.createRange();
+  try {
+    range.selectNodeContents(body);
+  } catch {
+    return null;
+  }
+  return range;
+}
+
 /** 进入框选模式：先自动选中长按处那句话，再把该消息放开为可选中，供手动拖手柄微调 */
 function startTextSelect(msgEl, point) {
   if (!msgEl) return;
   document.documentElement.classList.add('sel-mode');
   msgEl.classList.add('select-mode');
-  const range = sentenceRangeAt(point, msgEl);
+  const range = sentenceRangeAt(point, msgEl) || rangeOfMessage(msgEl);
   const sel = window.getSelection();
   if (range && sel) {
     sel.removeAllRanges();
@@ -2559,8 +2571,25 @@ function setDrawerDuration(ms) {
   document.documentElement.style.setProperty('--drawer-ms', value + 'ms');
 }
 
+let drawerOnTimer = 0;
+
+/** .main 的 transform 只在抽屉活跃期间存在：常驻 transform 会让 .main 变成合成层，
+    iOS 在合成层里画文本选区不可靠（框选框不显示、滚动闪烁）。 */
+function setDrawerOn(active, ms) {
+  const root = document.documentElement;
+  clearTimeout(drawerOnTimer);
+  drawerOnTimer = 0;
+  if (active) {
+    root.classList.add('drawer-on');
+    return;
+  }
+  // 关闭时先留着，等滑出动画播完再撤掉合成层
+  drawerOnTimer = setTimeout(() => root.classList.remove('drawer-on'), (ms || 260) + 80);
+}
+
 function openSidebar(ms) {
   setDrawerDuration(ms);
+  setDrawerOn(true);
   dom.sidebar.classList.add('open');
   dom.scrim.classList.add('open');
   dom.sidebar.setAttribute('aria-hidden', 'false');
@@ -2574,6 +2603,7 @@ function closeSidebar(ms) {
   dom.scrim.classList.remove('open');
   dom.sidebar.setAttribute('aria-hidden', 'true');
   document.documentElement.style.setProperty('--drawer-p', '0');
+  setDrawerOn(false, typeof ms === 'number' ? ms : 260);
 }
 
 /* 手机端会话栏抽屉：从左边缘向右滑跟手拉出，滑多少页面就移动多少；
@@ -2650,6 +2680,7 @@ function bindSwipeDrawer() {
       if (Math.sign(dx) !== wantSign) { finish(false); return; }
       dragging = true;
       root.classList.add('drawer-dragging');
+      setDrawerOn(true); // 开始拖时才让 .main 变成可位移
     }
     if (e.cancelable) e.preventDefault();
     // 扣掉死区再跟手：越过死区那一瞬间不会突然跳一段
@@ -2701,11 +2732,24 @@ function bindSelectionBar() {
   const addButton = (label, run) => {
     const btn = el('button', 'sel-btn', label);
     btn.type = 'button';
-    // 用 pointerdown：系统在点击瞬间就会折叠选区，等到 click 时工具条可能已经收起
-    btn.addEventListener('pointerdown', (e) => {
+    let lastRun = 0;
+    const fire = (e) => {
+      if (Date.now() - lastRun < 400) return; // touchend 与 click 去重
+      lastRun = Date.now();
       e.preventDefault();
       e.stopPropagation();
       run();
+    };
+    // 触屏上必须是 touchend 这类「用户手势」里才能写剪贴板：
+    // pointerdown 里执行 copy 会被 iOS 判定为非用户触发 → 一直报复制失败。
+    btn.addEventListener('touchend', fire, { passive: false });
+    // 桌面 / touchend 没来的情况
+    btn.addEventListener('click', fire);
+    // 按下时阻止选区折叠，否则按钮会被 refresh 重建成别的元素
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse') return;
+      e.preventDefault();
+      e.stopPropagation();
     });
     bar.appendChild(btn);
     return btn;
