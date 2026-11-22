@@ -2467,8 +2467,9 @@ function bindSwipeDrawer() {
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     const node = t.target;
-    // 排除：横向可滚动区域、输入框、侧栏内部、图片查看器与各种弹层
-    if (node && node.closest && node.closest('.code pre, .table-wrap, textarea, input, .sidebar, .img-viewer, .sheet, .modal')) return;
+    // 排除：横向可滚动区域、输入框、图片查看器与各种弹层。
+    // 侧栏内部不再排除 —— 打开状态下直接会话栏上向左滑也能把它推回去。
+    if (node && node.closest && node.closest('.code pre, .table-wrap, textarea, input, .img-viewer, .sheet, .modal')) return;
     // 整屏都能起手；是否真的进入抽屉手势由 onMove 的方向与距离判定决定
     baseP = isOpen() ? 1 : 0;
     startX = t.clientX;
