@@ -595,6 +595,7 @@ function messageNode(msg, index, session, variantInfo) {
     wrap.appendChild(hoverActions(msg, index, session, msg.content || ''));
     bindLongPress(wrap, () => openMessageMenu(msg, index, session));
     wrap.addEventListener('contextmenu', (e) => {
+      if (textSelectionActive()) return; // 有选中文字时保留系统的复制菜单
       e.preventDefault();
       openMessageMenu(msg, index, session);
     });
@@ -698,6 +699,7 @@ function messageNode(msg, index, session, variantInfo) {
     openMessageMenu(msg, index, session);
   });
   wrap.addEventListener('contextmenu', (e) => {
+    if (textSelectionActive()) return; // 有选中文字时保留系统的复制菜单
     e.preventDefault();
     if (msg.pending) return;
     openMessageMenu(msg, index, session);
@@ -1134,6 +1136,12 @@ function closeSheet() {
   }, 160);
 }
 
+/** 当前是否有用户框选的文本。流式重建 DOM 会让选区错位甚至丢失，选中期间先不重绘。 */
+function textSelectionActive() {
+  const sel = window.getSelection();
+  return !!(sel && sel.rangeCount > 0 && !sel.isCollapsed && String(sel).trim());
+}
+
 function bindLongPress(node, handler) {
   let timer = null;
   let fired = false;
@@ -1146,9 +1154,12 @@ function bindLongPress(node, handler) {
     startX = e.clientX;
     startY = e.clientY;
     timer = setTimeout(() => {
+      // 长按正文时 iOS 会先启动系统的文本选择（约 500ms）：这时候别再弹 App 自己的
+      // 长按菜单，否则两套菜单打架，用户就没法正常拖选某一段文字。
+      if (textSelectionActive()) return;
       fired = true;
       handler();
-    }, 480);
+    }, 700);
   });
 
   const cancel = () => {
@@ -1362,6 +1373,8 @@ async function runCompletion(session, assistantMsg) {
   const paint = () => {
     const idx = session.messages.indexOf(assistantMsg);
     if (idx < 0) return;
+    // 用户正在框选文字时先不重建：replaceChild 会让选区错位、甚至直接消失
+    if (textSelectionActive()) return;
     // 按 id 找节点，不缓存引用：避免节点被重建后引用失效；
     // 也不能用消息数组下标去索引 children —— DOM 只渲染当前分支，有分支后会错位成每帧一个新气泡
     const existing = renderedNode(assistantMsg);
@@ -1542,6 +1555,8 @@ async function continueReply(session, index) {
   const paint = () => {
     const idx = session.messages.indexOf(msg);
     if (idx < 0) return;
+    // 同上：用户正在框选文字时暂停重建，避免选区错位
+    if (textSelectionActive()) return;
     // 同上：按 id 定位，避免存在分支时用数组下标取到错误节点而追加重复气泡
     const existing = renderedNode(msg);
     const node = messageNode(msg, idx, session);
@@ -2232,7 +2247,58 @@ function bindEvents() {
   });
 
   // 点击附件缩略图 / 消息里的图片：放大查看（同一组可左右切换）
+  // 关键：在 pointerdown 那一刻就把「图片 + 同组清单」抓下来。流式输出每帧都会重建
+  // 消息节点，等 click 时图片元素常已被替换，click 直接落空 —— 这就是生成过程中
+  // 查看看器时灵时不灵的原因。改用 pointerup 判定轻点，节点被换掉也不影响。
+  let pendingImageTap = null;
+  let lastImageOpenAt = 0;
+  const clearImageTap = () => {
+    if (pendingImageTap && pendingImageTap.timer) clearTimeout(pendingImageTap.timer);
+    pendingImageTap = null;
+  };
+
+  document.addEventListener('pointerdown', (e) => {
+    clearImageTap();
+    const img = e.target instanceof HTMLImageElement ? e.target : null;
+    if (!img || img.classList.contains('img-viewer-img')) return;
+    const draftCell = img.closest('.draft-cell');
+    const galleryImg = img.closest('.gallery');
+    const editorImages = img.closest('.msg-editor-images');
+    const mdImg = img.classList.contains('md-img');
+    if (!draftCell && !galleryImg && !editorImages && !mdImg) return;
+    const container = draftCell ? draftCell.parentElement : (galleryImg || editorImages || null);
+    const list = container
+      ? Array.from(container.querySelectorAll('img')).map((x) => x.src)
+      : [img.src];
+    const index = Math.max(0, list.indexOf(img.src));
+    pendingImageTap = {
+      list,
+      index,
+      x: e.clientX,
+      y: e.clientY,
+      at: Date.now(),
+      // 长按是要弹消息菜单的，超过这个时间就不算「看大图」
+      timer: setTimeout(clearImageTap, 450),
+    };
+  }, true);
+
+  document.addEventListener('pointerup', (e) => {
+    const tap = pendingImageTap;
+    if (!tap) return;
+    clearImageTap();
+    if (Date.now() - tap.at > 450) return;
+    if (Math.abs(e.clientX - tap.x) > 12 || Math.abs(e.clientY - tap.y) > 12) return; // 是滑动不是点击
+    lastImageOpenAt = Date.now();
+    openImageViewer(tap.list, tap.index);
+    e.preventDefault();
+    e.stopPropagation();
+  }, true);
+
+  document.addEventListener('pointercancel', clearImageTap, true);
+
+  // 兜底：没有 pointer 事件时仍走 click
   document.addEventListener('click', (e) => {
+    if (Date.now() - lastImageOpenAt < 800) return; // 已经由 pointerup 打开过
     const img = e.target instanceof HTMLImageElement ? e.target : null;
     if (!img) return;
     const draftCell = img.closest('.draft-cell');

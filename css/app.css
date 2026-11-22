@@ -1339,13 +1339,15 @@ html.kb-open .chat {
 
 /* iOS：长按消息时禁止系统文本选择/长按菜单，改由 App 自己的长按菜单处理。
    只作用于消息内容，输入框和设置面板仍可正常选中复制。 */
+/* iOS：按钮、图片、代码块工具栏继续禁止系统选择/长按菜单，免得长按选中「复制」按钮；
+   但消息正文必须允许选择，否则只能整条复制、没法框选某一段。
+   正文可选后，长按正文会触发系统的文本选择，App 自己的长按菜单会自动退让（见 bindLongPress）。 */
 @media (hover: none) {
-  .msg .md,
-  .msg .bubble-text,
-  .msg .think-body,
-  .msg .code,
-  .msg .code code,
   .msg img,
+  .msg-actions,
+  .msg .act,
+  .md .code-bar,
+  .msg-editor,
   .sheet,
   .sheet-item {
     -webkit-user-select: none;
