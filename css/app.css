@@ -794,6 +794,37 @@ html[data-device="desktop"] .msg-actions { display: none; }
   outline-offset: -2px;
 }
 
+/* 把文件拖进聊天区时的整屏提示（拖到修改框时不出现，只在修改框上高亮） */
+.drop-hint {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: rgba(128, 128, 128, .14);
+  backdrop-filter: blur(3px);
+  /* 不能吃拖拽事件，否则遮罩会成为 drop 的目标 */
+  pointer-events: none;
+}
+
+.drop-hint-card {
+  padding: 22px 26px;
+  border-radius: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, .18);
+  text-align: center;
+  max-width: 78vw;
+}
+
+.drop-hint-text { font-size: 17px; color: var(--text); }
+
+.drop-hint-sub {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
 /* 图片查看器 */
 .img-viewer {
   position: fixed;

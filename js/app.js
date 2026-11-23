@@ -2669,9 +2669,16 @@ function bindEvents() {
 /* 桌面端拖拽上传：图片拖到输入框或就地编辑框即可添加 */
 function bindDragDrop() {
   const isDesktop = () => document.documentElement.dataset.device === 'desktop';
+  const composerZone = () => (dom.composer ? dom.composer.closest('.composer-wrap') : null);
   const zoneOf = (node) => {
     const el = node && (node.nodeType === 1 ? node : node.parentElement);
-    return el && el.closest ? el.closest('.composer-wrap, .msg-editor') : null;
+    if (!el || !el.closest) return null;
+    // 修改框优先：拖到修改框就始终加到修改框，不会被聊天区规则抢走
+    const editor = el.closest('.msg-editor');
+    if (editor) return editor;
+    // 聊天区其余任意位置，统一落到当前输入框
+    if (el.closest('.main')) return composerZone();
+    return null;
   };
 
   const addFiles = async (files, zone) => {
@@ -2715,6 +2722,20 @@ function bindDragDrop() {
     document.querySelectorAll('.drop-active').forEach((n) => n.classList.remove('drop-active'));
   };
 
+  // 拖到输入框区域时给整屏提示；拖到修改框只在修改框上高亮（保持原样）
+  let hintEl = null;
+  const showHint = (show) => {
+    if (show && !hintEl) {
+      hintEl = el('div', 'drop-hint');
+      hintEl.innerHTML = '<div class="drop-hint-card">'
+        + '<div class="drop-hint-text">文件和图片拖动到此处即可上传</div>'
+        + '<div class="drop-hint-sub">图片 ≤ 20 MB，文本文件 ≤ 1 MB</div>'
+        + '</div>';
+      document.body.appendChild(hintEl);
+    }
+    if (hintEl) hintEl.hidden = !show;
+  };
+
   document.addEventListener('dragover', (e) => {
     if (!isDesktop()) return;
     if (!e.dataTransfer || !Array.from(e.dataTransfer.types || []).includes('Files')) return;
@@ -2724,6 +2745,7 @@ function bindDragDrop() {
     const zone = zoneOf(e.target);
     clearZones();
     if (zone) zone.classList.add('drop-active');
+    showHint(!!zone && !zone.classList.contains('msg-editor'));
   });
 
   document.addEventListener('dragleave', (e) => {
@@ -2732,15 +2754,21 @@ function bindDragDrop() {
     if (zone) zone.classList.remove('drop-active');
   });
 
+  document.addEventListener('dragend', () => {
+    clearZones();
+    showHint(false);
+  });
+
   document.addEventListener('drop', (e) => {
     if (!isDesktop()) return;
     const files = e.dataTransfer && e.dataTransfer.files;
     clearZones();
+    showHint(false);
     if (!files || !files.length) return;
     e.preventDefault();
     const zone = zoneOf(e.target);
     if (!zone) {
-      toast('把文件拖到输入框上才能添加');
+      toast('把文件拖到聊天区域或修改框上');
       return;
     }
     addFiles(files, zone);
