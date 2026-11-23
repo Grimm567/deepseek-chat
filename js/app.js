@@ -1272,13 +1272,29 @@ function startTextSelect(msgEl, point) {
   if (!msgEl) return;
   document.documentElement.classList.add('sel-mode');
   msgEl.classList.add('select-mode');
-  const range = sentenceRangeAt(point, msgEl) || rangeOfMessage(msgEl);
-  const sel = window.getSelection();
-  if (range && sel) {
-    sel.removeAllRanges();
-    sel.addRange(range);
-  }
-  refreshSelectBar();
+  // 关键：先强制一次样式重算，让 user-select: text 真正生效，再建选区。
+  // 否则 Safari 会忽略这次程序化选区 —— 表现就是点完「选择文本」没有选中高亮，
+  // 非要滚动一下（触发重绘）之后才冒出来。
+  void msgEl.offsetHeight;
+
+  const apply = () => {
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && String(sel).trim()) {
+      refreshSelectBar(); // 已经有选区了（用户抢先一步），别覆盖
+      return;
+    }
+    const range = sentenceRangeAt(point, msgEl) || rangeOfMessage(msgEl);
+    if (range && sel) {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    void msgEl.offsetHeight; // 再踢一次重绘，让高亮立刻画出来
+    refreshSelectBar();
+  };
+
+  // 双保险：下一帧 + 稍后再各试一次，覆盖 iOS 上样式生效与选区建立先后顺序的差异
+  requestAnimationFrame(apply);
+  setTimeout(apply, 60);
 }
 
 /** 退出框选模式：恢复「长按弹菜单」的默认行为 */
