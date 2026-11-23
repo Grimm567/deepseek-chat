@@ -1150,7 +1150,7 @@ async function copyText(text) {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
       toast('已复制');
-      return;
+      return true;
     }
   } catch { /* 用下面的兜底方案 */ }
 
@@ -1178,6 +1178,7 @@ async function copyText(text) {
   }
   document.body.removeChild(ta);
   toast(ok ? '已复制' : '复制失败，请长按选中文本');
+  return ok;
 }
 
 /* ------------------------------ 图片查看器 ------------------------------ */
@@ -2763,7 +2764,11 @@ function bindSelectionBar() {
     // 框选模式：只给「复制选中 / 完成」；此时可能还没有选区（等用户拖手柄）
     if (selecting) {
       bar.innerHTML = '';
-      const copyBtn = addButton('复制选中', () => { if (text) copyText(text); });
+      const copyBtn = addButton('复制选中', async () => {
+        if (!text) return;
+        const ok = await copyText(text);
+        if (ok) exitTextSelect(); // 复制成功就收起工具条、退出框选模式
+      });
       copyBtn.disabled = !text;
       addButton('完成', exitTextSelect);
       bar.hidden = false;
