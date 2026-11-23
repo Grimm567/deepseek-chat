@@ -143,6 +143,56 @@ body { overflow: hidden; }
   color: var(--text-2);
 }
 
+/* 搜索结果里的消息命中项 */
+.conv-hit {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 12px 5px 24px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conv-hit:active { background: var(--bg-soft); }
+
+.conv-hit-who {
+  flex: none;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-soft);
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.conv-hit-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 未闭合代码块的占位提示（等闭合再渲染，避免半成品代码块每帧重建） */
+.md-pending {
+  color: var(--text-3);
+  font-size: 13px;
+  padding: 6px 2px;
+}
+
+/* 跳转到某条消息时的高亮闪烁 */
+.msg-flash {
+  border-radius: 12px;
+  animation: msgFlash 1.5s ease;
+}
+
+@keyframes msgFlash {
+  0%, 25% { background: rgba(77, 107, 254, .16); }
+  100% { background: transparent; }
+}
+
 .conv {
   display: flex;
   align-items: center;

@@ -300,8 +300,13 @@ function renderTable(header, sep, rows, stash) {
 
 const BLOCK_START = /^\s*(?:#{1,6}\s|\u0002\d+\u0002\s*$|>|[-*+]\s|\d+[.)]\s|(?:-{3,}|\*{3,}|_{3,})\s*$)/;
 
-export function renderMarkdown(src) {
-  if (src === null || src === undefined) return '';
+/**
+ * 把 Markdown 渲染成「块」数组。流式增量渲染靠它：块内容不变就保留原 DOM，
+ * 只替换变化的那几块，避免每帧重建整条消息。
+ * pending = 末尾有未闭合的代码块（此时该段先不渲染）。
+ */
+export function renderBlocks(src) {
+  if (src === null || src === undefined) return { blocks: [], pending: false };
   const stash = [];
   let text = String(src).replace(/\r\n?/g, '\n');
 
@@ -313,6 +318,15 @@ export function renderMarkdown(src) {
     stash.push(`<div class="code"><div class="code-bar"><span class="code-lang">${label}</span><button class="code-copy" type="button">复制</button></div><pre><code>${body}</code></pre></div>`);
     return `\u0002${stash.length - 1}\u0002\n`;
   });
+
+  // 未闭合的代码块：已经闭合的都被换成 token 了，剩下的 ``` 一定是没闭合的。
+  // 半截代码先整段不渲染，等闭合后一次性显示，避免每帧重建半成品代码块。
+  let pendingCode = false;
+  const openFence = text.indexOf('```');
+  if (openFence !== -1) {
+    pendingCode = true;
+    text = text.slice(0, openFence);
+  }
 
   // 有的接口会把反斜杠再转义一层，出现 \\(...\\) / \\[...\\] 这种写法。
   // 只归一“成对出现”的定界符，绝不能碰 LaTeX 自己的 \\[8pt]（换行间距）这类命令，
@@ -426,5 +440,11 @@ export function renderMarkdown(src) {
       `<li id="fn-${escapeHtml(f.id)}">${inline(escapeHtml(f.content), stash)}</li>`).join('')}</ol></section>`);
   }
 
-  return out.join('\n').replace(/\u0002(\d+)\u0002/g, (_, idx) => stash[Number(idx)] ?? '');
+  const restore = (html) => html.replace(/\u0002(\d+)\u0002/g, (_, idx) => stash[Number(idx)] ?? '');
+  return { blocks: out.map(restore), pending: pendingCode };
+}
+
+/** 一次性渲染成 HTML 字符串（非流式场景用） */
+export function renderMarkdown(src) {
+  return renderBlocks(src).blocks.join('\n');
 }

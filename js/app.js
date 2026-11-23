@@ -1,4 +1,4 @@
-import { renderMarkdown } from './markdown.js';
+import { renderMarkdown, renderBlocks } from './markdown.js';
 import { streamMessage, verifyKey, ApiError, DEFAULT_BASE_URL, DEFAULT_MODEL } from './api.js';
 import * as db from './db.js';
 import { exportArchive, importArchive } from './backup.js';
@@ -43,6 +43,8 @@ const state = {
   streaming: false,
   controller: null,
   draftImages: [],
+  // 还没落库的新对话草稿（切走再切回来要能恢复）
+  newDraft: null,
   query: '',
   selectMode: false,
   selected: new Set(),
@@ -255,6 +257,72 @@ function persist(session) {
   db.putSession(session).catch(() => toast('本地保存失败，可能是存储空间不足'));
 }
 
+/* ------------------------------ 草稿 ------------------------------ */
+
+const draftTimers = new Map();
+
+/** 立即把当前输入框内容与附件存进会话（切会话/关页面前调用） */
+function saveDraftNow() {
+  const session = currentSession();
+  const text = dom.input.value;
+  const images = state.draftImages.slice();
+  const files = state.draftFiles.slice();
+  const empty = !text.trim() && !images.length && !files.length;
+  if (!session) {
+    // 还没落库的新对话：先挂在内存里，切回来还能恢复
+    state.newDraft = empty ? null : { text, images, files };
+    return;
+  }
+  if (empty) delete session.draft;
+  else session.draft = { text, images, files, at: Date.now() };
+  persist(session);
+}
+
+/** 输入/附件变化时防抖保存，避免每敲一个字就写一次 IndexedDB */
+function scheduleDraftSave() {
+  const key = state.currentId || 'new';
+  clearTimeout(draftTimers.get(key));
+  draftTimers.set(key, setTimeout(() => {
+    draftTimers.delete(key);
+    saveDraftNow();
+  }, 700));
+}
+
+/** 切换会话后把草稿装回输入框 */
+function restoreDraft(session) {
+  const draft = session ? session.draft : state.newDraft;
+  state.draftImages = draft && Array.isArray(draft.images) ? draft.images.slice() : [];
+  state.draftFiles = draft && Array.isArray(draft.files) ? draft.files.slice() : [];
+  dom.input.value = draft && typeof draft.text === 'string' ? draft.text : '';
+  inputTrackValue = dom.input.value;
+  inputTrackAt = performance.now();
+  autoGrow();
+  renderDraft();
+  updateSendButton();
+}
+
+/** 发送成功后清掉该会话的草稿 */
+function clearDraft(session) {
+  state.newDraft = null; // 新对话的临时草稿也一并作废
+  if (!session || !session.draft) return;
+  delete session.draft;
+  persist(session);
+}
+
+/** 统一的会话切换入口：先存当前草稿，再加载目标会话的草稿 */
+function openConversation(session) {
+  const id = session ? session.id : null;
+  if (id === state.currentId) {
+    closeSidebar();
+    return;
+  }
+  saveDraftNow();
+  state.currentId = id;
+  closeSidebar();
+  renderAll();
+  restoreDraft(session);
+}
+
 /* ------------------------------ 侧栏 ------------------------------ */
 
 function renderSidebar() {
@@ -314,10 +382,7 @@ function renderSidebar() {
         });
       } else {
         row.addEventListener('click', () => {
-          state.currentId = s.id;
-          state.draftImages = [];
-          closeSidebar();
-          renderAll();
+          openConversation(s);
         });
         row.addEventListener('contextmenu', (e) => {
           e.preventDefault();
@@ -326,8 +391,48 @@ function renderSidebar() {
         bindLongPress(row, () => openSessionMenu(s));
       }
       dom.convList.appendChild(row);
+
+      // 搜索时把命中的消息片段也列出来，点一下直接跳到那条消息
+      if (q && !state.selectMode) {
+        const hits = (s.messages || [])
+          .filter((m) => (m.content || '').toLowerCase().includes(q))
+          .slice(0, 3);
+        for (const hit of hits) {
+          const item = el('button', 'conv-hit');
+          item.type = 'button';
+          item.appendChild(el('span', 'conv-hit-who', hit.role === 'user' ? '你' : 'AI'));
+          item.appendChild(el('span', 'conv-hit-text', snippetAround(hit.content || '', q)));
+          item.addEventListener('click', () => jumpToMessage(s, hit.id));
+          dom.convList.appendChild(item);
+        }
+      }
     }
   }
+}
+
+/** 截取关键词附近的一小段，用于搜索结果预览 */
+function snippetAround(text, q, radius = 24) {
+  const plain = String(text).replace(/\s+/g, ' ').trim();
+  const at = plain.toLowerCase().indexOf(q);
+  if (at < 0) return plain.slice(0, radius * 2);
+  const start = Math.max(0, at - radius);
+  const end = Math.min(plain.length, at + q.length + radius);
+  return (start > 0 ? '…' : '') + plain.slice(start, end) + (end < plain.length ? '…' : '');
+}
+
+/** 跳到某条消息：打开会话后滚动定位并短暂高亮 */
+function jumpToMessage(session, msgId) {
+  openConversation(session);
+  requestAnimationFrame(() => {
+    const node = dom.messages.querySelector(`[data-id="${msgId}"]`);
+    if (!node) {
+      toast('这条消息不在当前分支里');
+      return;
+    }
+    node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    node.classList.add('msg-flash');
+    setTimeout(() => node.classList.remove('msg-flash'), 1500);
+  });
 }
 
 function enterSelectMode(session) {
@@ -556,6 +661,72 @@ function renderTimeline(container, items) {
   flushOpen();
 }
 
+/* --------------------------- 流式增量渲染 --------------------------- */
+
+/** 一条消息实际展示的文本（优先 blocks 里的 text 块） */
+function messageContentText(msg) {
+  const blocks = Array.isArray(msg.blocks) ? msg.blocks.filter(Boolean) : [];
+  const textItems = blocks.filter((b) => b.type === 'text');
+  return textItems.length ? textItems.map((b) => b.text).join('') : (msg.content || '');
+}
+
+/** HTML 片段 → 块节点（渲染器的每个块恰好一个根元素） */
+function blockNode(html) {
+  const tpl = document.createElement('template');
+  tpl.innerHTML = html;
+  return tpl.content.firstElementChild;
+}
+
+/**
+ * 增量填充容器：与上次渲染相同的块保留原 DOM，只替换变化的部分。
+ * 流式输出时每帧只有最后一块在变，前面的 KaTeX / 图片 / 代码块不再重建，
+ * 顺带解决选区被重建打散、图片查看器点不中这些连带问题。
+ */
+function fillBlocks(container, src, pendingLabel) {
+  const { blocks, pending } = renderBlocks(src);
+  const prev = container.__sigs || [];
+  let same = 0;
+  while (same < blocks.length && same < prev.length && blocks[same] === prev[same]) same++;
+  while (container.children.length > same) container.removeChild(container.lastChild);
+  for (let i = same; i < blocks.length; i++) {
+    const node = blockNode(blocks[i]);
+    if (node) container.appendChild(node);
+  }
+  if (pending) container.appendChild(el('div', 'md-pending', pendingLabel || '代码生成中…'));
+  container.__sigs = blocks;
+}
+
+/**
+ * 流式期间就地更新已渲染的节点。返回 false 表示这块结构还没准备好（比如还在 loading
+ * 占位），调用方应退回全量重建。
+ */
+function updateStreamingNode(node, msg) {
+  const content = messageContentText(msg);
+  let body = null;
+  let details = null;
+  for (const child of node.children) {
+    if (child.classList.contains('md')) body = child;
+    else if (child.classList.contains('think')) details = child;
+  }
+  if (!body && content) return false;
+
+  if (body) fillBlocks(body, content);
+
+  if (details) {
+    const summary = details.querySelector('.think-head');
+    const thinkBody = details.querySelector('.think-body');
+    const blocks = Array.isArray(msg.blocks) ? msg.blocks.filter(Boolean) : [];
+    const hasTimeline = blocks.some((b) => b.type === 'thinking' || b.type === 'search' || b.type === 'open');
+    if (summary) {
+      summary.textContent = msg.pending && !content
+        ? '正在深度思考…'
+        : `已思考（用时 ${msg.elapsedSecs || 1} 秒）`;
+    }
+    if (thinkBody && !hasTimeline) fillBlocks(thinkBody, msg.reasoning || '');
+  }
+  return true;
+}
+
 function messageNode(msg, index, session, variantInfo) {
   if (state.editingId === msg.id) return messageEditorNode(msg, index, session);
   const wrap = el('div', 'msg ' + (msg.role === 'user' ? 'user' : 'assistant'));
@@ -605,9 +776,7 @@ function messageNode(msg, index, session, variantInfo) {
     (b) => b.type === 'thinking' || b.type === 'search' || b.type === 'open'
   );
   const textItems = blocks.filter((b) => b.type === 'text');
-  const content = textItems.length
-    ? textItems.map((b) => b.text).join('')
-    : (msg.content || '');
+  const content = messageContentText(msg);
   const citations = textItems.reduce((acc, b) => acc.concat(b.citations || []), []);
 
   if (thinkItems.length || msg.reasoning) {
@@ -626,7 +795,7 @@ function messageNode(msg, index, session, variantInfo) {
 
     const body = el('div', 'think-body md');
     if (thinkItems.length) renderTimeline(body, thinkItems);
-    else body.innerHTML = renderMarkdown(msg.reasoning);
+    else fillBlocks(body, msg.reasoning || '');
     details.appendChild(body);
     wrap.appendChild(details);
   }
@@ -637,7 +806,7 @@ function messageNode(msg, index, session, variantInfo) {
     wrap.appendChild(loading);
   } else {
     const body = el('div', 'md');
-    body.innerHTML = renderMarkdown(content);
+    fillBlocks(body, content);
     wrap.appendChild(body);
   }
 
@@ -1420,6 +1589,8 @@ async function send() {
 
   let session = currentSession();
   if (!session) session = newSession();
+  // 已经发出去了，这条草稿没用了
+  clearDraft(session);
 
   const assistantOf = (userMsg) => ({
     id: db.newId(),
@@ -1519,6 +1690,11 @@ async function runCompletion(session, assistantMsg) {
     // 按 id 找节点，不缓存引用：避免节点被重建后引用失效；
     // 也不能用消息数组下标去索引 children —— DOM 只渲染当前分支，有分支后会错位成每帧一个新气泡
     const existing = renderedNode(assistantMsg);
+    // 流式期间就地更新内容块，不重建整条消息：KaTeX、图片、选区都保持原样
+    if (existing && assistantMsg.pending && updateStreamingNode(existing, assistantMsg)) {
+      scrollToBottom();
+      return;
+    }
     const node = messageNode(assistantMsg, idx, session);
     if (existing) dom.messages.replaceChild(node, existing);
     else dom.messages.appendChild(node);
@@ -1700,6 +1876,10 @@ async function continueReply(session, index) {
     if (textSelectionActive()) return;
     // 同上：按 id 定位，避免存在分支时用数组下标取到错误节点而追加重复气泡
     const existing = renderedNode(msg);
+    if (existing && msg.pending && updateStreamingNode(existing, msg)) {
+      scrollToBottom();
+      return;
+    }
     const node = messageNode(msg, idx, session);
     if (existing) dom.messages.replaceChild(node, existing);
     else dom.messages.appendChild(node);
@@ -2038,6 +2218,8 @@ function renderDraft() {
       onOpen: () => insertFileInto(state.draftFiles, i, 'draft'),
     }));
   });
+  // 附件增删也会走这里：顺手把草稿存下来
+  scheduleDraftSave();
 }
 
 /* ------------------------------ 设置 ------------------------------ */
@@ -2207,15 +2389,7 @@ function bindEvents() {
   dom.scrim.addEventListener('click', closeSidebar);
 
   const startNewChat = () => {
-    state.currentId = null;
-    state.draftImages = [];
-    state.draftFiles = [];
-    dom.input.value = '';
-    inputTrackValue = '';
-    inputTrackAt = performance.now();
-    autoGrow();
-    renderDraft();
-    renderAll();
+    openConversation(null);
     dom.input.focus();
   };
   dom.btnNew.addEventListener('click', startNewChat);
@@ -2227,6 +2401,7 @@ function bindEvents() {
   dom.input.addEventListener('input', () => {
     // 开始在日常输入框里打字时，自动退出消息的就地编辑（编辑框复位到修改前）
     if (state.editingId) cancelEdit();
+    scheduleDraftSave();
 
     const now = performance.now();
     const cur = dom.input.value;
