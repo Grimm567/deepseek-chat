@@ -716,9 +716,6 @@ function fillBlocks(container, src, pendingLabel) {
   container.__sigs = blocks;
 }
 
-// 思考/搜索时间线整体重建开销大，节流到 ~120ms 一次（思考过程仍然看得出在流式增长）
-let lastTimelinePaint = 0;
-
 /**
  * 流式期间就地更新已渲染的节点。返回 false 表示这块结构还没准备好（比如还在 loading
  * 占位、思考区还没建），调用方应退回全量重建。
@@ -737,7 +734,9 @@ function updateStreamingNode(node, msg) {
     else if (child.classList.contains('think')) details = child;
   }
   if (!body && content) return false;
-  if (!details && thinkItems.length) return false; // 思考区还没建出来
+  // 思考区还没建出来就必须全量重建：不管思考内容来自 blocks 里的 thinking 块
+  // （新格式）还是 msg.reasoning 字段（旧格式），漏判任何一路都会让思考内容憋着不显示
+  if (!details && (thinkItems.length || msg.reasoning)) return false;
 
   if (body) fillBlocks(body, content);
 
@@ -751,13 +750,10 @@ function updateStreamingNode(node, msg) {
     }
     if (thinkBody) {
       if (thinkItems.length) {
-        // 有思考/搜索步骤：节流重建整条时间线，否则思考内容要等正文开始才一次性冒出来
-        const now = performance.now();
-        if (now - lastTimelinePaint > 120) {
-          lastTimelinePaint = now;
-          thinkBody.innerHTML = '';
-          renderTimeline(thinkBody, thinkItems);
-        }
+        // 有思考/搜索步骤：每帧重建整条时间线。
+        // 之前为了省开销跳过它，结果思考内容要等正文出现才一次性冒出来 —— 那才是问题根源。
+        thinkBody.innerHTML = '';
+        renderTimeline(thinkBody, thinkItems);
       } else {
         fillBlocks(thinkBody, msg.reasoning || '');
       }
