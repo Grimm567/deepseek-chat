@@ -716,12 +716,20 @@ function fillBlocks(container, src, pendingLabel) {
   container.__sigs = blocks;
 }
 
+// 思考/搜索时间线整体重建开销大，节流到 ~120ms 一次（思考过程仍然看得出在流式增长）
+let lastTimelinePaint = 0;
+
 /**
  * 流式期间就地更新已渲染的节点。返回 false 表示这块结构还没准备好（比如还在 loading
- * 占位），调用方应退回全量重建。
+ * 占位、思考区还没建），调用方应退回全量重建。
  */
 function updateStreamingNode(node, msg) {
   const content = messageContentText(msg);
+  const blocks = Array.isArray(msg.blocks) ? msg.blocks.filter(Boolean) : [];
+  const thinkItems = blocks.filter(
+    (b) => b.type === 'thinking' || b.type === 'search' || b.type === 'open'
+  );
+
   let body = null;
   let details = null;
   for (const child of node.children) {
@@ -729,20 +737,31 @@ function updateStreamingNode(node, msg) {
     else if (child.classList.contains('think')) details = child;
   }
   if (!body && content) return false;
+  if (!details && thinkItems.length) return false; // 思考区还没建出来
 
   if (body) fillBlocks(body, content);
 
   if (details) {
     const summary = details.querySelector('.think-head');
     const thinkBody = details.querySelector('.think-body');
-    const blocks = Array.isArray(msg.blocks) ? msg.blocks.filter(Boolean) : [];
-    const hasTimeline = blocks.some((b) => b.type === 'thinking' || b.type === 'search' || b.type === 'open');
     if (summary) {
       summary.textContent = msg.pending && !content
         ? '正在深度思考…'
         : `已思考（用时 ${msg.elapsedSecs || 1} 秒）`;
     }
-    if (thinkBody && !hasTimeline) fillBlocks(thinkBody, msg.reasoning || '');
+    if (thinkBody) {
+      if (thinkItems.length) {
+        // 有思考/搜索步骤：节流重建整条时间线，否则思考内容要等正文开始才一次性冒出来
+        const now = performance.now();
+        if (now - lastTimelinePaint > 120) {
+          lastTimelinePaint = now;
+          thinkBody.innerHTML = '';
+          renderTimeline(thinkBody, thinkItems);
+        }
+      } else {
+        fillBlocks(thinkBody, msg.reasoning || '');
+      }
+    }
   }
   return true;
 }
