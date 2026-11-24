@@ -1,5 +1,14 @@
 /* DeepSeek 客户端样式：白底 + #4D6BFE，移动优先 */
 
+/* Windows 的系统 emoji 字体不合成国旗，🇨🇳 会显示成两个区域字母 CN。
+   这个字体只覆盖区域指示符（U+1F1E6–1F1FF），用来补国旗；76KB 本地自带，离线可用。 */
+@font-face {
+  font-family: 'Twemoji Country Flags';
+  src: url('../fonts/TwemojiCountryFlags.woff2') format('woff2');
+  unicode-range: U+1F1E6-1F1FF;
+  font-display: swap;
+}
+
 :root {
   --blue: #4d6bfe;
   --blue-soft: #eef3ff;
@@ -38,7 +47,10 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei', sans-serif;
+  /* 国旗字体排在 Apple Color Emoji 之后（苹果原生更漂亮）、Segoe UI Emoji 之前
+     （Windows 的 Segoe UI Emoji 会把国旗拆成字母）。 */
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Helvetica Neue', 'Microsoft YaHei',
+    'Apple Color Emoji', 'Twemoji Country Flags', 'Segoe UI Emoji', sans-serif;
   font-size: 16px;
   line-height: 1.6;
   overscroll-behavior: none;
@@ -1581,4 +1593,87 @@ html[data-theme='dark'] .tk-n { color: #ffb74d; }
   .field input,
   .field textarea,
   .field select { font-size: 16px; }
+}
+
+/* --------------------------- 右侧消息导航（桌面宽屏） --------------------------- */
+/* 每条用户提问对应一个刻度；hover 出二级菜单，点击跳到那条消息。
+   刻度间距按消息条数自动压缩，条数多时也不会顶出屏幕。 */
+
+.msg-nav {
+  position: fixed;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 30;
+  display: none;
+}
+
+/* 只在桌面端、且窗口够宽时出现 */
+html[data-device="desktop"] .msg-nav { display: block; }
+html[data-device="desktop"] .msg-nav.empty { display: none; }
+
+@media (max-width: 1024px) {
+  html[data-device="desktop"] .msg-nav { display: none; }
+}
+
+.msg-nav-track {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: clamp(2px, calc(62vh / var(--nav-count, 10)), 8px);
+  padding: 10px 6px;
+}
+
+.msg-nav-tick {
+  width: 12px;
+  height: 2px;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: var(--text-3);
+  opacity: .5;
+  cursor: pointer;
+  transition: width .15s, background .15s, opacity .15s;
+}
+
+.msg-nav-tick:hover { opacity: .9; }
+.msg-nav-tick.active { width: 20px; background: var(--blue); opacity: 1; }
+
+.msg-nav-pop {
+  position: absolute;
+  right: 26px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 270px;
+  max-height: 62vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, .16);
+}
+
+.msg-nav-item {
+  display: block;
+  width: 100%;
+  padding: 7px 9px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+  text-align: left;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.msg-nav-item:hover,
+.msg-nav-item.active {
+  background: var(--bg-soft);
+  color: var(--text);
 }

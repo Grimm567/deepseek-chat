@@ -595,7 +595,10 @@ function renderAll() {
 
   renderSidebar();
   if (hasMessages) renderMessages();
-  else dom.messages.innerHTML = '';
+  else {
+    dom.messages.innerHTML = '';
+    renderMessageNav();
+  }
   updateSendButton();
   scrollToBottom(true);
 }
@@ -1116,7 +1119,11 @@ function renderedNode(msg) {
 
 function renderMessages() {
   const session = currentSession();
-  if (!session) return;
+  if (!session) {
+    dom.messages.innerHTML = '';
+    renderMessageNav();
+    return;
+  }
   dom.messages.innerHTML = '';
 
   const path = currentPath(session);
@@ -1128,6 +1135,103 @@ function renderMessages() {
       messageNode(msg, index, session, { members, index: siblingIndex })
     );
   }
+  renderMessageNav();
+}
+
+/* --------------------------- 消息导航（右侧刻度） --------------------------- */
+
+let navEl = null;
+let navPopEl = null;
+let navTargets = [];   // [{ id, node, tick, item }]
+let navHideTimer = 0;
+
+function ensureMessageNav() {
+  if (navEl) return;
+  navEl = el('div', 'msg-nav');
+  navEl.innerHTML = '<div class="msg-nav-track"></div><div class="msg-nav-pop" hidden></div>';
+  document.body.appendChild(navEl);
+  navPopEl = navEl.querySelector('.msg-nav-pop');
+
+  const show = () => {
+    clearTimeout(navHideTimer);
+    navPopEl.hidden = false;
+  };
+  const hideLater = () => {
+    clearTimeout(navHideTimer);
+    navHideTimer = setTimeout(() => { navPopEl.hidden = true; }, 180);
+  };
+  navEl.addEventListener('mouseenter', show);
+  navEl.addEventListener('mouseleave', hideLater);
+  // 菜单在刻度左侧，中间有一点空隙；进出都带延时，鼠标划过去不会闪
+  navPopEl.addEventListener('mouseenter', show);
+  navPopEl.addEventListener('mouseleave', hideLater);
+}
+
+/** 重建右侧消息刻度：每条用户提问一个刻度，hover 出二级列表 */
+function renderMessageNav() {
+  ensureMessageNav();
+  const nodes = Array.from(dom.messages.querySelectorAll('.msg.user'));
+  const track = navEl.querySelector('.msg-nav-track');
+  track.innerHTML = '';
+  navPopEl.innerHTML = '';
+  navTargets = [];
+
+  // 消息太少就不占右侧（一两个点的导航没有意义）
+  if (nodes.length < 2) {
+    navEl.classList.add('empty');
+    return;
+  }
+  navEl.classList.remove('empty');
+  navEl.style.setProperty('--nav-count', String(nodes.length));
+
+  nodes.forEach((node) => {
+    const text = Array.from(node.querySelectorAll('.bubble-text'))
+      .map((n) => n.textContent.trim())
+      .join(' ')
+      .replace(/\s+/g, ' ');
+    const label = text ? text.slice(0, 28) : '[附件]';
+
+    const tick = el('button', 'msg-nav-tick');
+    tick.type = 'button';
+    tick.dataset.target = node.dataset.id;
+    tick.addEventListener('click', () => jumpToMessageById(node.dataset.id));
+    track.appendChild(tick);
+
+    const item = el('button', 'msg-nav-item', label);
+    item.type = 'button';
+    item.dataset.target = node.dataset.id;
+    item.addEventListener('click', () => jumpToMessageById(node.dataset.id));
+    navPopEl.appendChild(item);
+
+    navTargets.push({ id: node.dataset.id, node, tick, item });
+  });
+
+  syncNavActive();
+}
+
+/** 点击导航项：滚到那条消息并闪一下（和搜索结果跳转同一套表现） */
+function jumpToMessageById(id) {
+  const node = dom.messages.querySelector(`[data-id="${id}"]`);
+  if (!node) return;
+  node.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  node.classList.add('msg-flash');
+  setTimeout(() => node.classList.remove('msg-flash'), 1500);
+}
+
+/** 滚动时点亮「当前视口附近的那条提问」对应的刻度 */
+function syncNavActive() {
+  if (!navEl || navEl.classList.contains('empty') || !navTargets.length) return;
+  const box = dom.chat;
+  const pivot = box.scrollTop + box.clientHeight * 0.35;
+  let active = 0;
+  navTargets.forEach((t, i) => {
+    if (t.node.offsetTop <= pivot) active = i;
+  });
+  navTargets.forEach((t, i) => {
+    const on = i === active;
+    if (t.tick.classList.contains('active') !== on) t.tick.classList.toggle('active', on);
+    if (t.item.classList.contains('active') !== on) t.item.classList.toggle('active', on);
+  });
 }
 
 function openMessageMenu(msg, index, session, point, msgEl) {
@@ -1544,6 +1648,7 @@ function onChatScroll() {
   }
   lastScrollTop = top;
   updateScrollButton();
+  syncNavActive();
 }
 
 function scrollToBottom(force) {
