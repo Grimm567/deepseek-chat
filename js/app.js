@@ -40,8 +40,6 @@ const state = {
   settings: loadSettings(),
   sessions: [],
   currentId: null,
-  streaming: false,
-  controller: null,
   draftImages: [],
   // 还没落库的新对话草稿（切走再切回来要能恢复）
   newDraft: null,
@@ -56,6 +54,22 @@ const state = {
   draftFiles: [],
   editingFiles: [],
 };
+
+// 每个会话各自一条生成流：切到别的会话时旧会话继续生成，新会话也能直接发消息。
+// sessionId -> { controller, msgId }
+const streams = new Map();
+
+/** 指定会话（默认当前会话）是否正在生成 */
+function isStreaming(sessionId = state.currentId) {
+  return !!sessionId && streams.has(sessionId);
+}
+
+/** 中断某个会话的流（幂等） */
+function stopStream(sessionId) {
+  const entry = sessionId ? streams.get(sessionId) : null;
+  if (!entry) return;
+  try { entry.controller.abort(); } catch { /* 忽略 */ }
+}
 
 const $ = (id) => document.getElementById(id);
 const dom = {
@@ -455,6 +469,8 @@ async function deleteSelected() {
   }
   if (!window.confirm(`删除选中的 ${ids.length} 个对话？`)) return;
   for (const id of ids) {
+    // 正在生成的会话要先掐断，否则流式回调会把删掉的会话又写回数据库
+    stopStream(id);
     await db.deleteSession(id).catch(() => {});
   }
   state.sessions = state.sessions.filter((s) => !ids.includes(s.id));
@@ -499,6 +515,7 @@ function openSessionMenu(session) {
       danger: true,
       run: async () => {
         if (!window.confirm(`删除「${session.title || '新对话'}」？`)) return;
+        stopStream(session.id); // 同上：先掐流，避免被写回
         await db.deleteSession(session.id).catch(() => {});
         state.sessions = state.sessions.filter((s) => s.id !== session.id);
         if (state.currentId === session.id) state.currentId = null;
@@ -1031,7 +1048,7 @@ function messageEditorNode(msg, index, session) {
 }
 
 function startEdit(msg, index, session) {
-  if (state.streaming) return;
+  if (isStreaming(session.id)) return;
   state.editingId = msg.id;
   state.editingText = msg.content || '';
   state.editingImages = (msg.images || []).map((img) => Object.assign({}, img));
@@ -1434,9 +1451,7 @@ function exitTextSelect() {
 /** 删除一条消息（含它的所有分支后代），供气泡菜单与框选工具条共用 */
 async function deleteMessage(msg, session) {
   // 正在生成的回复：先把流式中止，避免删除后流式回调继续改状态
-  if (msg.pending && state.controller) {
-    try { state.controller.abort(); } catch { /* 忽略 */ }
-  }
+  if (msg.pending) stopStream(session ? session.id : null);
   // 树形结构：连带删掉它的所有后代，别把别的分支也带走
   const doomed = new Set([msg.id]);
   let grew = true;
@@ -1640,9 +1655,10 @@ function updateSendButton() {
   const hasText = dom.input.value.trim().length > 0 || state.draftImages.length > 0 || state.draftFiles.length > 0;
   dom.btnSend.disabled = !hasText;
   dom.btnSend.classList.toggle('disabled', !hasText);
-  dom.btnSend.hidden = state.streaming;
-  dom.btnAttach.hidden = state.streaming;
-  dom.btnStop.hidden = !state.streaming;
+  const busy = isStreaming();
+  dom.btnSend.hidden = busy;
+  dom.btnAttach.hidden = busy;
+  dom.btnStop.hidden = !busy;
 }
 
 function autoGrow() {
@@ -1710,7 +1726,7 @@ function newSession() {
 
 async function send() {
   const text = dom.input.value.trim();
-  if ((!text && !state.draftImages.length && !state.draftFiles.length) || state.streaming) return;
+  if ((!text && !state.draftImages.length && !state.draftFiles.length) || isStreaming()) return;
   if (!state.settings.apiKey) {
     openSettings();
     toast('先填写 API Key');
@@ -1805,8 +1821,8 @@ async function send() {
 }
 
 async function runCompletion(session, assistantMsg) {
-  state.streaming = true;
-  state.controller = new AbortController();
+  const controller = new AbortController();
+  streams.set(session.id, { controller, msgId: assistantMsg.id });
   updateSendButton();
 
   const history = currentPath(session)
@@ -1827,6 +1843,8 @@ async function runCompletion(session, assistantMsg) {
   const paint = () => {
     const idx = session.messages.indexOf(assistantMsg);
     if (idx < 0) return;
+    // 已经切到别的会话：内容继续在数据里累积，但绝不能画进当前会话的 DOM
+    if (state.currentId !== session.id) return;
     // 用户正在框选文字时先不重建：replaceChild 会让选区错位、甚至直接消失
     if (textSelectionActive()) return;
     // 按 id 找节点，不缓存引用：避免节点被重建后引用失效；
@@ -1863,7 +1881,7 @@ async function runCompletion(session, assistantMsg) {
       search: state.settings.search,
       temperature: state.settings.temperature,
       wantTitle: !session.title || session.title.length === 0,
-      signal: state.controller.signal,
+      signal: controller.signal,
 
       onBlockStart: (index, block) => {
         if (block.type === 'thinking') {
@@ -1916,7 +1934,8 @@ async function runCompletion(session, assistantMsg) {
       onTitle: (title) => {
         if (title && title.trim() && session.messages.filter((m) => m.role === 'user').length <= 1) {
           session.title = title.trim();
-          dom.topTitle.textContent = session.title;
+          // 只有当前正在看的还是这条会话时才改顶栏标题
+          if (state.currentId === session.id) dom.topTitle.textContent = session.title;
           renderSidebar();
         }
       },
@@ -1939,8 +1958,7 @@ async function runCompletion(session, assistantMsg) {
       assistantMsg.error = err instanceof ApiError ? err.message : String(err && err.message || err);
     }
   } finally {
-    state.streaming = false;
-    state.controller = null;
+    streams.delete(session.id);
     assistantMsg.pending = false;
     assistantMsg.endedAt = Date.now();
     if (assistantMsg.reasoning && !assistantMsg.elapsedSecs) {
@@ -1948,15 +1966,18 @@ async function runCompletion(session, assistantMsg) {
     }
     session.updatedAt = Date.now();
     persist(session);
-    renderMessages();
+    // 生成期间可能已经切到别的会话：只更新数据与侧栏，别去动当前会话的 DOM
+    if (state.currentId === session.id) {
+      renderMessages();
+      if (state.settings.autoScroll !== false) scrollToBottom();
+    }
     renderSidebar();
     updateSendButton();
-    if (state.settings.autoScroll !== false) scrollToBottom();
   }
 }
 
 async function regenerate(session, index) {
-  if (state.streaming) return;
+  if (isStreaming(session.id)) return;
   const old = session.messages[index];
   if (!old || old.role !== 'assistant') return;
 
@@ -1989,7 +2010,7 @@ async function regenerate(session, index) {
 /** 继续生成：把已有的部分回答作为 assistant 前缀发出去，只追加新增内容 */
 async function continueReply(session, index) {
   const msg = session.messages[index];
-  if (!msg || msg.role !== 'assistant' || state.streaming) return;
+  if (!msg || msg.role !== 'assistant' || isStreaming(session.id)) return;
   if (msg.search) {
     toast('带联网搜索的回答不支持续写');
     return;
@@ -2006,14 +2027,16 @@ async function continueReply(session, index) {
   const baseReasoning = msg.reasoning || '';
   const newBlocks = [];
 
-  state.streaming = true;
-  state.controller = new AbortController();
+  const controller = new AbortController();
+  streams.set(session.id, { controller, msgId: msg.id });
   updateSendButton();
 
   let frame = 0;
   const paint = () => {
     const idx = session.messages.indexOf(msg);
     if (idx < 0) return;
+    // 已经切到别的会话：内容继续累积，但不往当前会话的 DOM 里画
+    if (state.currentId !== session.id) return;
     // 同上：用户正在框选文字时暂停重建，避免选区错位
     if (textSelectionActive()) return;
     // 同上：按 id 定位，避免存在分支时用数组下标取到错误节点而追加重复气泡
@@ -2052,7 +2075,7 @@ async function continueReply(session, index) {
       search: false,
       temperature: state.settings.temperature,
       wantTitle: false,
-      signal: state.controller.signal,
+      signal: controller.signal,
       onBlockStart: (i, block) => {
         if (block.type === 'text') newBlocks[i] = { type: 'text', text: '' };
         else if (block.type === 'thinking') newBlocks[i] = { type: 'thinking', text: '' };
@@ -2080,21 +2103,22 @@ async function continueReply(session, index) {
       msg.error = err instanceof ApiError ? err.message : String((err && err.message) || err);
     }
   } finally {
-    state.streaming = false;
-    state.controller = null;
+    streams.delete(session.id);
     refresh();
     msg.pending = false;
     session.updatedAt = Date.now();
     persist(session);
-    renderMessages();
+    if (state.currentId === session.id) {
+      renderMessages();
+      if (state.settings.autoScroll !== false) scrollToBottom();
+    }
     updateSendButton();
-    if (state.settings.autoScroll !== false) scrollToBottom();
   }
 }
 
 function editMessage(session, index) {
   const msg = session.messages[index];
-  if (!msg || msg.role !== 'user' || state.streaming) return;
+  if (!msg || msg.role !== 'user' || isStreaming(session.id)) return;
   dom.input.value = msg.content || '';
   state.draftImages = (msg.images || []).slice();
   // 发送时从这里截断，等同「改完重问」
@@ -2586,7 +2610,8 @@ function bindEvents() {
 
   dom.btnSend.addEventListener('click', send);
   dom.btnStop.addEventListener('click', () => {
-    if (state.controller) state.controller.abort();
+    // 只停当前会话的生成；别的会话在后台继续跑
+    stopStream(state.currentId);
   });
 
   dom.btnThink.addEventListener('click', () => {
