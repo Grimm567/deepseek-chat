@@ -1656,9 +1656,10 @@ html[data-device="desktop"] .msg-nav.empty { display: none; }
 }
 
 .msg-nav-item {
+  position: relative;
   display: block;
   width: 100%;
-  padding: 7px 9px;
+  padding: 7px 9px 7px 20px;
   border: 0;
   border-radius: 8px;
   background: transparent;
@@ -1672,8 +1673,23 @@ html[data-device="desktop"] .msg-nav.empty { display: none; }
   cursor: pointer;
 }
 
-.msg-nav-item:hover,
-.msg-nav-item.active {
+/* 鼠标悬停：灰底 */
+.msg-nav-item:hover {
   background: var(--bg-soft);
   color: var(--text);
+}
+
+/* 当前所在位置：左侧一个蓝点，不再用底色，免得和悬停混在一起 */
+.msg-nav-item.active { color: var(--text); }
+
+.msg-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  margin-top: -3px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--blue);
 }

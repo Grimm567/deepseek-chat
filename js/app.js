@@ -1144,6 +1144,7 @@ let navEl = null;
 let navPopEl = null;
 let navTargets = [];   // [{ id, node, tick, item }]
 let navHideTimer = 0;
+let navLockUntil = 0;  // 点击跳转后短暂锁定，避免平滑滚动途中高亮乱跳
 
 function ensureMessageNav() {
   if (navEl) return;
@@ -1211,27 +1212,47 @@ function renderMessageNav() {
 
 /** 点击导航项：滚到那条消息并闪一下（和搜索结果跳转同一套表现） */
 function jumpToMessageById(id) {
+  const index = navTargets.findIndex((t) => t.id === id);
   const node = dom.messages.querySelector(`[data-id="${id}"]`);
   if (!node) return;
   node.scrollIntoView({ block: 'center', behavior: 'smooth' });
   node.classList.add('msg-flash');
   setTimeout(() => node.classList.remove('msg-flash'), 1500);
+  // 点了哪一条就立刻标哪一条，别等滚动计算追上
+  if (index >= 0) syncNavActive(index);
 }
 
-/** 滚动时点亮「当前视口附近的那条提问」对应的刻度 */
-function syncNavActive() {
-  if (!navEl || navEl.classList.contains('empty') || !navTargets.length) return;
-  const box = dom.chat;
-  const pivot = box.scrollTop + box.clientHeight * 0.35;
-  let active = 0;
+function applyNavActive(index) {
   navTargets.forEach((t, i) => {
-    if (t.node.offsetTop <= pivot) active = i;
-  });
-  navTargets.forEach((t, i) => {
-    const on = i === active;
+    const on = i === index;
     if (t.tick.classList.contains('active') !== on) t.tick.classList.toggle('active', on);
     if (t.item.classList.contains('active') !== on) t.item.classList.toggle('active', on);
   });
+}
+
+/** 滚动时点亮「离视口中心最近的那条提问」；forcedIndex 用于点击后立即锁定 */
+function syncNavActive(forcedIndex) {
+  if (!navEl || navEl.classList.contains('empty') || !navTargets.length) return;
+  if (typeof forcedIndex === 'number') {
+    applyNavActive(forcedIndex);
+    navLockUntil = performance.now() + 600; // 平滑滚动期间别再抢
+    return;
+  }
+  if (performance.now() < navLockUntil) return;
+  const box = dom.chat;
+  // 用视口中心比对消息中心：点击是把消息居中的，用「顶部过 35%」会一直慢一拍
+  const viewMid = box.scrollTop + box.clientHeight / 2;
+  let active = 0;
+  let best = Infinity;
+  navTargets.forEach((t, i) => {
+    const center = t.node.offsetTop + t.node.offsetHeight / 2;
+    const d = Math.abs(center - viewMid);
+    if (d < best) {
+      best = d;
+      active = i;
+    }
+  });
+  applyNavActive(active);
 }
 
 function openMessageMenu(msg, index, session, point, msgEl) {
@@ -2781,9 +2802,11 @@ function bindDragDrop() {
     // 修改框优先：拖到修改框就始终加到修改框，不会被聊天区规则抢走
     const editor = el.closest('.msg-editor');
     if (editor) return editor;
-    // 聊天区其余任意位置，统一落到当前输入框
-    if (el.closest('.main')) return composerZone();
-    return null;
+    // 侧栏、设置面板、图片查看器、弹层不接管
+    if (el.closest('.sidebar, .modal, .img-viewer, .sheet')) return null;
+    // 其余任何位置都落到当前输入框。
+    // 注意不能用 .main：桌面端它被限宽居中，两侧空白不属于 .main，拖过去会没反应。
+    return composerZone();
   };
 
   const addFiles = async (files, zone) => {
