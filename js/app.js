@@ -92,6 +92,7 @@ const dom = {
   btnSearch: $('btnSearch'),
   btnSettings: $('btnSettings'),
   btnScrollBottom: $('btnScrollBottom'),
+  btnFollow: $('btnFollow'),
   sheet: $('sheet'),
   sheetPanel: $('sheetPanel'),
   modal: $('settingsModal'),
@@ -1693,10 +1694,15 @@ function onChatScroll() {
   const box = dom.chat;
   const top = box.scrollTop;
   const distance = box.scrollHeight - top - box.clientHeight;
-  if (distance <= 12) {
-    stickToBottom = true; // 已经滑到底部：恢复自动跟随
-  } else if (performance.now() - lastProgrammaticAt > 120 && top < lastScrollTop - 20) {
-    stickToBottom = false; // 兜底：明显上滑（例如拖动滚动条），程序滚动后的 120ms 内不判
+  const movedUp = top < lastScrollTop - 2;
+  const movedDown = top > lastScrollTop + 1;
+  if (movedUp && performance.now() - lastProgrammaticAt > 80) {
+    // 用户主动上滑：立刻停止跟随。程序滚动后的 80ms 内不判，避免流式重排的抖动误伤
+    stickToBottom = false;
+  } else if (movedDown && distance <= 12) {
+    // 只有「主动往下滚到底」才恢复跟随。原来只要距离底部 12px 内就恢复，
+    // 结果轻微上滑几像素就被立刻拽回底部 —— 手机上表现为怎么滑都退不出自动跟随
+    stickToBottom = true;
   }
   lastScrollTop = top;
   updateScrollButton();
@@ -1712,6 +1718,17 @@ function scrollToBottom(force) {
   box.scrollTop = box.scrollHeight;
   lastScrollTop = box.scrollTop;
   lastProgrammaticAt = performance.now();
+}
+
+/** 自动跟随按钮：显示当前开关状态，开启时立即滚到底 */
+function applyFollowState() {
+  const on = state.settings.autoScroll !== false;
+  if (dom.btnFollow) {
+    dom.btnFollow.classList.toggle('on', on);
+    dom.btnFollow.setAttribute('aria-pressed', String(on));
+    dom.btnFollow.title = on ? '自动跟随最新消息：开' : '自动跟随最新消息：关';
+  }
+  if (on) scrollToBottom(true);
 }
 
 function updateScrollButton() {
@@ -2670,6 +2687,7 @@ function bindEvents() {
   });
   $('setAutoScroll').addEventListener('change', (e) => {
     state.settings.autoScroll = e.target.checked;
+    applyFollowState();
   });
   $('setMsgScale').addEventListener('input', (e) => {
     const scale = Number(e.target.value);
@@ -2706,20 +2724,29 @@ function bindEvents() {
   dom.btnScrollBottom.addEventListener('click', () => scrollToBottom(true));
   dom.chat.addEventListener('scroll', onChatScroll, { passive: true });
 
-  // 手指向下拖 = 内容向上滚 = 用户在看历史：立刻停掉自动跟随
+  // 手指向下拖 = 内容向上滚 = 用户在看历史：立刻停掉自动跟随（2px 就生效，别等滑很远）
   dom.chat.addEventListener('touchstart', (e) => {
     if (e.touches.length === 1) lastTouchY = e.touches[0].clientY;
   }, { passive: true });
   dom.chat.addEventListener('touchmove', (e) => {
     if (e.touches.length !== 1) return;
     const y = e.touches[0].clientY;
-    if (y - lastTouchY > 4) stickToBottom = false;
+    if (y - lastTouchY > 2) stickToBottom = false;
     lastTouchY = y;
   }, { passive: true });
   // 桌面端滚轮向上
   dom.chat.addEventListener('wheel', (e) => {
     if (e.deltaY < -1) stickToBottom = false;
   }, { passive: true });
+
+  // 自动跟随开关按钮
+  if (dom.btnFollow) {
+    dom.btnFollow.addEventListener('click', () => {
+      state.settings.autoScroll = state.settings.autoScroll === false;
+      saveSettings();
+      applyFollowState();
+    });
+  }
 
   // 点击输入框（含发送按钮那一排）以外的区域时自动收起键盘
   const inComposer = (node) => {
@@ -3358,6 +3385,7 @@ async function init() {
   applyDeviceClass();
   applyComposerGap();
   applyMsgScale();
+  applyFollowState();
   lockPageZoom();
   bindDeviceWatchers();
   bindEvents();

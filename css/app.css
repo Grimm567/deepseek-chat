@@ -1003,6 +1003,17 @@ html[data-device="desktop"] .msg-actions { display: none; }
   cursor: pointer;
 }
 
+/* 自动跟随按钮：开启时高亮成蓝色，关闭时灰色 */
+.follow-btn { color: var(--text-3); }
+
+.follow-btn.on {
+  color: var(--blue);
+  border-color: rgba(77, 107, 254, .35);
+  background: var(--blue-soft);
+}
+
+.follow-btn:active { transform: scale(.94); }
+
 .send-btn {
   width: 32px;
   height: 32px;
