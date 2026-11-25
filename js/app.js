@@ -2636,6 +2636,10 @@ function bindEvents() {
 
   dom.input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
+    // 手机端不拦截回车：iOS 的 enterkeyhint 对 textarea 基本无效，软键盘回车键永远
+    // 显示「换行」。拦截它去发送，就变成「显示换行、按下却发送」的矛盾。
+    // 网页里只能二选一，所以手机端让回车老老实实换行，发送靠按钮。
+    if (document.documentElement.dataset.device !== 'desktop') return;
     e.preventDefault();
     send();
   });
