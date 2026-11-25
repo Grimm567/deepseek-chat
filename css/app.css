@@ -1006,6 +1006,10 @@ html[data-device="desktop"] .msg-actions { display: none; }
 /* 自动跟随按钮：开启时高亮成蓝色，关闭时灰色 */
 .follow-btn { color: var(--text-3); }
 
+/* 换行按钮：只在手机端显示（桌面用 Shift+Enter），补上「回车=发送」之后缺失的换行入口 */
+.newline-btn { display: none; color: var(--text-3); }
+html[data-device="phone"] .newline-btn { display: grid; }
+
 .follow-btn.on {
   color: var(--blue);
   border-color: rgba(77, 107, 254, .35);

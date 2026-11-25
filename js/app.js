@@ -93,6 +93,7 @@ const dom = {
   btnSettings: $('btnSettings'),
   btnScrollBottom: $('btnScrollBottom'),
   btnFollow: $('btnFollow'),
+  btnNewline: $('btnNewline'),
   sheet: $('sheet'),
   sheetPanel: $('sheetPanel'),
   modal: $('settingsModal'),
@@ -1731,6 +1732,19 @@ function applyFollowState() {
   if (on) scrollToBottom(true);
 }
 
+/** 在光标处插入换行：手机端回车已经改成发送，换行靠这个按钮 */
+function insertNewlineAtCursor() {
+  const ta = dom.input;
+  const start = typeof ta.selectionStart === 'number' ? ta.selectionStart : ta.value.length;
+  const end = typeof ta.selectionEnd === 'number' ? ta.selectionEnd : start;
+  ta.value = ta.value.slice(0, start) + '\n' + ta.value.slice(end);
+  ta.selectionStart = start + 1;
+  ta.selectionEnd = start + 1;
+  ta.focus();
+  // 触发 input 事件，让自动高度、发送按钮状态、草稿保存都跟着更新
+  ta.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function updateScrollButton() {
   const box = dom.chat;
   const away = box.scrollHeight - box.scrollTop - box.clientHeight > 300;
@@ -2636,10 +2650,8 @@ function bindEvents() {
 
   dom.input.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter' || e.shiftKey || e.isComposing) return;
-    // 手机端不拦截回车：iOS 的 enterkeyhint 对 textarea 基本无效，软键盘回车键永远
-    // 显示「换行」。拦截它去发送，就变成「显示换行、按下却发送」的矛盾。
-    // 网页里只能二选一，所以手机端让回车老老实实换行，发送靠按钮。
-    if (document.documentElement.dataset.device !== 'desktop') return;
+    // textarea 上的 enterkeyhint="send" 会让 iOS 键盘显示「发送」，但按键本身仍插入换行，
+    // 所以必须在这里拦下改成发送；想换行就用输入栏里的换行按钮（手机）或 Shift+Enter（桌面）。
     e.preventDefault();
     send();
   });
@@ -2749,6 +2761,15 @@ function bindEvents() {
       state.settings.autoScroll = state.settings.autoScroll === false;
       saveSettings();
       applyFollowState();
+    });
+  }
+
+  // 换行按钮（手机端显示）：回车已改成发送，换行从这里进
+  if (dom.btnNewline) {
+    // 用 pointerdown 避免先失焦键盘再重新聚焦导致闪一下
+    dom.btnNewline.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      insertNewlineAtCursor();
     });
   }
 
