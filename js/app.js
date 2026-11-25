@@ -92,8 +92,6 @@ const dom = {
   btnSearch: $('btnSearch'),
   btnSettings: $('btnSettings'),
   btnScrollBottom: $('btnScrollBottom'),
-  btnFollow: $('btnFollow'),
-  btnNewline: $('btnNewline'),
   sheet: $('sheet'),
   sheetPanel: $('sheetPanel'),
   modal: $('settingsModal'),
@@ -1721,28 +1719,9 @@ function scrollToBottom(force) {
   lastProgrammaticAt = performance.now();
 }
 
-/** 自动跟随按钮：显示当前开关状态，开启时立即滚到底 */
+/** 设置里的「自动跟随」生效：开启时立即滚到底 */
 function applyFollowState() {
-  const on = state.settings.autoScroll !== false;
-  if (dom.btnFollow) {
-    dom.btnFollow.classList.toggle('on', on);
-    dom.btnFollow.setAttribute('aria-pressed', String(on));
-    dom.btnFollow.title = on ? '自动跟随最新消息：开' : '自动跟随最新消息：关';
-  }
-  if (on) scrollToBottom(true);
-}
-
-/** 在光标处插入换行：手机端回车已经改成发送，换行靠这个按钮 */
-function insertNewlineAtCursor() {
-  const ta = dom.input;
-  const start = typeof ta.selectionStart === 'number' ? ta.selectionStart : ta.value.length;
-  const end = typeof ta.selectionEnd === 'number' ? ta.selectionEnd : start;
-  ta.value = ta.value.slice(0, start) + '\n' + ta.value.slice(end);
-  ta.selectionStart = start + 1;
-  ta.selectionEnd = start + 1;
-  ta.focus();
-  // 触发 input 事件，让自动高度、发送按钮状态、草稿保存都跟着更新
-  ta.dispatchEvent(new Event('input', { bubbles: true }));
+  if (state.settings.autoScroll !== false) scrollToBottom(true);
 }
 
 function updateScrollButton() {
@@ -2754,24 +2733,6 @@ function bindEvents() {
   dom.chat.addEventListener('wheel', (e) => {
     if (e.deltaY < -1) stickToBottom = false;
   }, { passive: true });
-
-  // 自动跟随开关按钮
-  if (dom.btnFollow) {
-    dom.btnFollow.addEventListener('click', () => {
-      state.settings.autoScroll = state.settings.autoScroll === false;
-      saveSettings();
-      applyFollowState();
-    });
-  }
-
-  // 换行按钮（手机端显示）：回车已改成发送，换行从这里进
-  if (dom.btnNewline) {
-    // 用 pointerdown 避免先失焦键盘再重新聚焦导致闪一下
-    dom.btnNewline.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      insertNewlineAtCursor();
-    });
-  }
 
   // 点击输入框（含发送按钮那一排）以外的区域时自动收起键盘
   const inComposer = (node) => {
