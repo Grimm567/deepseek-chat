@@ -17,6 +17,8 @@ const DEFAULTS = {
   temperature: 1,
   composerGap: 0,
   autoScroll: true,
+  // 一轮回答结束后是否强制滚到底（与「流式期间是否跟随」分开控制）
+  autoScrollEnd: true,
   msgScale: 1,
 };
 
@@ -1994,7 +1996,7 @@ async function runCompletion(session, assistantMsg) {
     // 生成期间可能已经切到别的会话：只更新数据与侧栏，别去动当前会话的 DOM
     if (state.currentId === session.id) {
       renderMessages();
-      if (state.settings.autoScroll !== false) scrollToBottom();
+      if (state.settings.autoScrollEnd !== false) scrollToBottom(true);
     }
     renderSidebar();
     updateSendButton();
@@ -2135,7 +2137,7 @@ async function continueReply(session, index) {
     persist(session);
     if (state.currentId === session.id) {
       renderMessages();
-      if (state.settings.autoScroll !== false) scrollToBottom();
+      if (state.settings.autoScrollEnd !== false) scrollToBottom(true);
     }
     updateSendButton();
   }
@@ -2447,6 +2449,8 @@ function openSettings() {
     }
     const autoScrollInput = document.getElementById('setAutoScroll');
     if (autoScrollInput) autoScrollInput.checked = state.settings.autoScroll !== false;
+    const autoScrollEndInput = document.getElementById('setAutoScrollEnd');
+    if (autoScrollEndInput) autoScrollEndInput.checked = state.settings.autoScrollEnd !== false;
 
     const scaleInput = document.getElementById('setMsgScale');
     if (scaleInput) {
@@ -2492,6 +2496,7 @@ async function saveSettingsFromForm() {
     temperature: Number($('setTemp').value),
     composerGap: Number($('setGap').value),
     autoScroll: $('setAutoScroll').checked,
+    autoScrollEnd: $('setAutoScrollEnd').checked,
     msgScale: Number($('setMsgScale').value),
   });
   saveSettings();
@@ -2683,6 +2688,9 @@ function bindEvents() {
   $('setAutoScroll').addEventListener('change', (e) => {
     state.settings.autoScroll = e.target.checked;
     applyFollowState();
+  });
+  $('setAutoScrollEnd').addEventListener('change', (e) => {
+    state.settings.autoScrollEnd = e.target.checked;
   });
   $('setMsgScale').addEventListener('input', (e) => {
     const scale = Number(e.target.value);
