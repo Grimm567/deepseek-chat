@@ -3099,6 +3099,8 @@ function bindSwipeDrawer() {
 
   document.addEventListener('touchstart', (e) => {
     if (e.touches.length !== 1) return;
+    // 正在框选文本时不接管：拖选择手柄、扩展选区的手势不能被抽屉抢走
+    if (document.documentElement.classList.contains('sel-mode') || textSelectionActive()) return;
     const t = e.touches[0];
     const node = t.target;
     // 排除：横向可滚动区域、输入框、图片查看器与各种弹层。
