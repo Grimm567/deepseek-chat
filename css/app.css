@@ -1381,6 +1381,25 @@ html.kb-open .chat {
   background: var(--bg-soft);
 }
 
+/* 模型偶尔输出 HTML <details> 时，渲染器会转成这种折叠块 */
+.md-details {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg-soft);
+}
+
+.md-details > summary {
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-2);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.md-details-body { margin-top: 8px; }
+
 .md .code-bar {
   display: flex;
   align-items: center;
@@ -1388,8 +1407,7 @@ html.kb-open .chat {
   padding: 7px 12px;
   font-size: 12px;
   color: var(--text-2);
-  border-bottom: 1px solid var(--line);
-}
+  border-bottom: 1px solid var(--line);}
 
 .md .code-copy {
   border: 0;

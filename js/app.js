@@ -156,6 +156,8 @@ function composeSystemPrompt() {
     + '- 强调分三档：**普通加粗**、***小标题***、****大标题****；\n'
     + '- 数学公式用 $...$（行内）或 $$...$$（块级，独立成段）；\n'
     + '- 脚注用 [^1] 引用，并在文末用 [^1]: 内容 定义；\n'
+    + '- 不要输出 HTML 标签（<details>、<div>、<span>、<br> 等），界面只渲染 Markdown；\n'
+    + '- 需要联网就直接调用搜索工具；不要在正文里写 <tool_result>、<tool_call> 这类工具调用标签，更不能编造工具返回结果；\n'
     + '- 裸链接和邮箱会自动识别，不必额外加格式。'
   );
 
@@ -1882,7 +1884,10 @@ async function runCompletion(session, assistantMsg) {
       scrollToBottom();
       return;
     }
-    const node = messageNode(assistantMsg, idx, session);
+    // 重建时也必须带上版本信息，否则「重新生成」后的 ‹ 2/3 › 切换条会被抹掉
+    const members = siblingsOf(session, assistantMsg);
+    const siblingIndex = members.findIndex((m) => m.id === assistantMsg.id);
+    const node = messageNode(assistantMsg, idx, session, { members, index: siblingIndex });
     if (existing) dom.messages.replaceChild(node, existing);
     else dom.messages.appendChild(node);
     scrollToBottom();
@@ -2072,7 +2077,9 @@ async function continueReply(session, index) {
       scrollToBottom();
       return;
     }
-    const node = messageNode(msg, idx, session);
+    const members = siblingsOf(session, msg);
+    const siblingIndex = members.findIndex((m) => m.id === msg.id);
+    const node = messageNode(msg, idx, session, { members, index: siblingIndex });
     if (existing) dom.messages.replaceChild(node, existing);
     else dom.messages.appendChild(node);
     scrollToBottom();

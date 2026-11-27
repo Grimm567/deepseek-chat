@@ -227,6 +227,10 @@ function inline(text, stash) {
   // 行内代码优先，避免内部内容再被解释
   s = s.replace(/`([^`\n]+)`/g, (_, code) => token(`<code class="inline-code">${code}</code>`));
 
+  // 模型偶尔在正文里写裸 HTML 标签：剥掉标签本身、保留里面的文字。
+  // 行内代码和公式已经 token 化，不会误伤它们内部的内容。
+  s = s.replace(/<\/?(?:div|span|p|br|hr|b|i|strong|em|u|s|small|font|center|ul|ol|li|table|thead|tbody|tr|td|th|h[1-6]|a|img|code|pre|blockquote|section|article|details|summary)\b[^>]*>/gi, '');
+
   // 行内公式 $...$ 或 \(...\)
   s = s.replace(/(^|[^\\])\$([^$\n]+?)\$/g, (m, pre, tex) => `${pre}${token(mathHtml(tex, false))}`);
   s = s.replace(/\\\(([^\n]+?)\\\)/g, (m, tex) => token(mathHtml(tex, false)));
@@ -319,8 +323,27 @@ export function renderBlocks(src) {
     return `\u0002${stash.length - 1}\u0002\n`;
   });
 
-  // 未闭合的代码块：已经闭合的都被换成 token 了，剩下的 ``` 一定是没闭合的。
-  // 半截代码先整段不渲染，等闭合后一次性显示，避免每帧重建半成品代码块。
+  // 模型偶尔会把工具调用/结果（DSML 文本协议）直接写进正文，例如
+  // <tool_result>{"output":"..."}</tool_result>。这些是内部协议、不是给用户看的内容：
+  // 已闭合的整块剥掉；流式中途还没闭合的，从标签起到结尾一并剥掉。
+  const TOOL_TAG = '(tool_result|tool_call|tool_calls|function_call|function_result|tool_use|tool_response)';
+  text = text.replace(new RegExp(`<${TOOL_TAG}\\b[^>]*>[\\s\\S]*?<\\/\\1>`, 'gi'), '');
+  text = text.replace(new RegExp(`<${TOOL_TAG}\\b[^>]*>[\\s\\S]*$`, 'gi'), '');
+
+  // 模型有时在正文里直接写 <details><summary>…</summary>…</details>。
+  // 我们不做 HTML 解析，所以把它转成真正的折叠块，避免标签原样显示出来。
+  text = text.replace(/<details[^>]*>([\s\S]*?)<\/details>/gi, (_, inner) => {
+    const m = /<summary[^>]*>([\s\S]*?)<\/summary>/i.exec(inner);
+    const summary = m ? m[1].trim() : '详情';
+    const body = m ? inner.replace(m[0], '') : inner;
+    stash.push(
+      `<details class="md-details"><summary>${escapeHtml(summary)}</summary>`
+      + `<div class="md-details-body">${renderMarkdown(body)}</div></details>`
+    );
+    return `\u0002${stash.length - 1}\u0002\n`;
+  });
+
+  // 未闭合的代码块：已经闭合的都被换成 token 了，剩下的 ``` 一定是没闭合的。  // 半截代码先整段不渲染，等闭合后一次性显示，避免每帧重建半成品代码块。
   let pendingCode = false;
   const openFence = text.indexOf('```');
   if (openFence !== -1) {
