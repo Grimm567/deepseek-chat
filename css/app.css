@@ -358,6 +358,15 @@ html.drawer-dragging .sidebar {
   transform: translateX(calc((var(--drawer-p, 0) - 1) * 100%));
 }
 
+/* 拖动/打开期间：提前提升合成层，并用 contain 限制重绘范围。
+   长会话里 .main 有几千个节点，不提前提层的话每帧都在整块重新栅格化，
+   手机端表现就是「上下滑很顺、左右拖抽屉巨卡」。 */
+html.drawer-on .main,
+html.drawer-on .sidebar {
+  will-change: transform;
+  contain: paint;
+}
+
 /* ------------------------------ 主区 ------------------------------ */
 
 .main {

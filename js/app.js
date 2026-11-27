@@ -3293,7 +3293,8 @@ function bindViewport() {
     root.style.setProperty('--vvh', vv.height + 'px');
     root.style.setProperty('--vvy', vv.offsetTop + 'px');
     root.classList.toggle('kb-open', keyboardOpen);
-    if (document.activeElement === dom.input) scrollToBottom(true);
+    // 这里刻意不滚到底：点输入框只是要打字，不该把正在看的上下文顶走。
+    // 真正需要「到底」的时机是发送消息（renderAll）和生成结束，那些地方各自会滚。
   };
   // 用 rAF 合并同一帧内的多次触发，避免键盘动画期间反复重排
   const schedule = () => {
